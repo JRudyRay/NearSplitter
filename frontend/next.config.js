@@ -11,10 +11,8 @@ const nextConfig = {
     unoptimized: true,
   },
   
-  // Keep typed routes
-  experimental: {
-    typedRoutes: true
-  },
+  // Typed routes (moved from experimental)
+  typedRoutes: true,
   
   // Trailing slash for better static hosting compatibility
   trailingSlash: true,
