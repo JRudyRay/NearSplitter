@@ -1,0 +1,13 @@
+{
+  "name": "nearsplitter-monorepo",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@8.15.6",
+  "scripts": {
+    "build:contract": "pnpm --filter near-splitter-contract run build",
+    "test:unit": "pnpm --filter near-splitter-contract run test:unit",
+    "test:int": "pnpm --filter near-splitter-integration run test",
+    "deploy:testnet": "pwsh ./scripts/deploy-testnet.ps1",
+    "dev:web": "pnpm --filter frontend dev"
+  }
+}

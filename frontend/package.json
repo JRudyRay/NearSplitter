@@ -1,0 +1,54 @@
+{
+  "name": "near-splitter-frontend",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "test": "vitest run",
+    "test:watch": "vitest watch"
+  },
+  "dependencies": {
+    "@near-wallet-selector/bitte-wallet": "^9.5.4",
+    "@near-wallet-selector/core": "^9.5.4",
+    "@near-wallet-selector/ledger": "^9.5.4",
+    "@near-wallet-selector/meteor-wallet": "^9.5.4",
+    "@near-wallet-selector/modal-ui": "^9.5.4",
+    "@near-wallet-selector/nightly": "^9.5.4",
+    "@near-wallet-selector/react-hook": "^9.5.4",
+    "clsx": "^2.1.1",
+    "framer-motion": "^11.2.13",
+    "lucide-react": "^0.441.0",
+    "near-api-js": "^6.3.0",
+    "next": "15.5.4",
+    "react": "19.1.1",
+    "react-dom": "19.1.1",
+    "swr": "^2.2.5"
+  },
+  "devDependencies": {
+    "@testing-library/jest-dom": "^6.4.4",
+    "@testing-library/react": "^15.0.7",
+    "@testing-library/user-event": "^14.6.1",
+    "@types/node": "20.12.12",
+    "@types/react": "18.3.3",
+    "@types/react-dom": "18.3.0",
+    "@typescript-eslint/eslint-plugin": "^7.8.0",
+    "@typescript-eslint/parser": "^7.8.0",
+    "autoprefixer": "^10.4.18",
+    "eslint": "^8.57.0",
+    "eslint-config-next": "14.2.4",
+    "jsdom": "^24.0.0",
+    "postcss": "^8.4.35",
+    "tailwind-merge": "^2.3.0",
+    "tailwindcss": "^3.4.4",
+    "ts-node": "^10.9.2",
+    "typescript": "5.4.5",
+    "vitest": "^1.5.2"
+  },
+  "engines": {
+    "node": ">=18.18.0",
+    "pnpm": ">=8.0.0"
+  }
+}

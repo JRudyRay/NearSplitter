@@ -1,0 +1,1 @@
+C:\Users\johno\Documents\GitHub\NearSplitter\contracts\near_splitter\target\wasm32-unknown-unknown\release\near_splitter.wasm: C:\Users\johno\Documents\GitHub\NearSplitter\contracts\near_splitter\src\lib.rs
