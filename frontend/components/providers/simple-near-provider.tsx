@@ -1,11 +1,14 @@
 'use client';
 
 import { createContext, useContext, useEffect, useState } from "react";
-import { setupWalletSelector } from "@near-wallet-selector/core";
-import { setupModal } from "@near-wallet-selector/modal-ui";
+import { setupWalletSelector, type WalletSelector } from "@near-wallet-selector/core";
+import { setupModal, type WalletSelectorModal } from "@near-wallet-selector/modal-ui";
+import { setupMyNearWallet } from "@near-wallet-selector/my-near-wallet";
 import { setupMeteorWallet } from "@near-wallet-selector/meteor-wallet";
 import { setupLedger } from "@near-wallet-selector/ledger";
 import { setupNightly } from "@near-wallet-selector/nightly";
+import { getNearConfig } from "@/lib/near/config";
+import { utils } from "near-api-js";
 import "@near-wallet-selector/modal-ui/styles.css";
 
 interface SimpleNearContextValue {
@@ -25,14 +28,16 @@ const SimpleNearContext = createContext<SimpleNearContextValue | undefined>(unde
 
 export function SimpleNearProvider({ children }: { children: React.ReactNode }) {
   const [accountId, setAccountId] = useState<string | null>(null);
-  const [walletSelector, setWalletSelector] = useState<any>(null);
-  const [modal, setModal] = useState<any>(null);
+  const [walletSelector, setWalletSelector] = useState<WalletSelector | null>(null);
+  const [modal, setModal] = useState<WalletSelectorModal | null>(null);
+  const config = getNearConfig();
 
   useEffect(() => {
     const initWallet = async () => {
       const selector = await setupWalletSelector({
-        network: "testnet",
+        network: config.networkId as "testnet" | "mainnet",
         modules: [
+          setupMyNearWallet(),
           setupMeteorWallet(),
           setupLedger(),
           setupNightly(),
@@ -40,7 +45,7 @@ export function SimpleNearProvider({ children }: { children: React.ReactNode }) 
       });
 
       const walletModal = setupModal(selector, {
-        contractId: "hello.near-examples.testnet",
+        contractId: config.contractId,
       });
 
       setWalletSelector(selector);
@@ -63,11 +68,61 @@ export function SimpleNearProvider({ children }: { children: React.ReactNode }) 
     };
 
     initWallet().catch(console.error);
-  }, []);
+  }, [config.networkId, config.contractId]);
+
+  const call = async (methodName: string, args: Record<string, unknown>, options?: { attachedDeposit?: string; gas?: string }) => {
+    if (!walletSelector) {
+      throw new Error("Wallet selector not initialized");
+    }
+
+    const wallet = await walletSelector.wallet();
+    const transactions = [{
+      signerId: accountId!,
+      receiverId: config.contractId,
+      actions: [{
+        type: "FunctionCall" as const,
+        params: {
+          methodName,
+          args,
+          gas: options?.gas || "30000000000000",
+          deposit: options?.attachedDeposit || "0",
+        }
+      }]
+    }];
+
+    return wallet.signAndSendTransactions({ transactions });
+  };
+
+  const view = async <T,>(methodName: string, args: Record<string, unknown>): Promise<T> => {
+    const response = await fetch(config.nodeUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: "dontcare",
+        method: "query",
+        params: {
+          request_type: "call_function",
+          account_id: config.contractId,
+          method_name: methodName,
+          args_base64: Buffer.from(JSON.stringify(args)).toString("base64"),
+          finality: "optimistic",
+        },
+      }),
+    });
+
+    const { result, error } = await response.json();
+    if (error) {
+      throw new Error(error.message || "RPC call failed");
+    }
+
+    const decoded = Buffer.from(result.result).toString();
+    return JSON.parse(decoded) as T;
+  };
 
   const value: SimpleNearContextValue = {
-    contractId: "hello.near-examples.testnet",
-    explorerUrl: "https://testnet.nearblocks.io",
+    contractId: config.contractId,
+    explorerUrl: config.explorerUrl,
     signIn: async () => {
       if (modal) {
         modal.show();
@@ -84,16 +139,8 @@ export function SimpleNearProvider({ children }: { children: React.ReactNode }) 
     },
     accountId,
     status: walletSelector ? "ready" : "loading",
-    
-    // Contract interaction methods - still mocked for now
-    call: async (methodName, args, options) => {
-      console.log("Mock contract call:", { methodName, args, options });
-      return { success: true, message: `Mock response for ${methodName}` };
-    },
-    view: async (methodName, args) => {
-      console.log("Mock contract view:", { methodName, args });
-      return { data: `Mock view response for ${methodName}` } as any;
-    }
+    call,
+    view,
   };
 
   return <SimpleNearContext.Provider value={value}>{children}</SimpleNearContext.Provider>;

@@ -25,6 +25,9 @@ importers:
       '@near-wallet-selector/modal-ui':
         specifier: ^9.5.4
         version: 9.5.4(@near-js/crypto@2.3.2)(@near-js/keystores@2.3.2)(@near-js/transactions@2.3.2)(near-api-js@6.3.0)(react-dom@19.1.1)(react@19.1.1)
+      '@near-wallet-selector/my-near-wallet':
+        specifier: ^9.5.4
+        version: 9.5.4(@near-js/crypto@2.3.2)(@near-js/keystores@2.3.2)(@near-js/transactions@2.3.2)
       '@near-wallet-selector/nightly':
         specifier: ^9.5.4
         version: 9.5.4(@near-js/crypto@2.3.2)(@near-js/keystores@2.3.2)(@near-js/transactions@2.3.2)
@@ -1456,6 +1459,20 @@ packages:
       - '@near-js/keystores'
       - '@near-js/transactions'
       - near-api-js
+    dev: false
+
+  /@near-wallet-selector/my-near-wallet@9.5.4(@near-js/crypto@2.3.2)(@near-js/keystores@2.3.2)(@near-js/transactions@2.3.2):
+    resolution: {integrity: sha512-pq2+liBAUz6KUI4UgeRljNdkz1/UqgjDUhcpNGSU/ykLWiepHdo1Qubzr9UayS1j0bU2jijQj1fP0oGulEKlNA==}
+    dependencies:
+      '@near-wallet-selector/core': 9.5.4(@near-js/crypto@2.3.2)(@near-js/keystores@2.3.2)(@near-js/transactions@2.3.2)(near-api-js@5.0.0)
+      '@near-wallet-selector/wallet-utils': 9.5.4(@near-js/crypto@2.3.2)(@near-js/keystores@2.3.2)(@near-js/transactions@2.3.2)(near-api-js@5.0.0)
+      borsh: 2.0.0
+      near-api-js: 5.0.0
+    transitivePeerDependencies:
+      - '@near-js/crypto'
+      - '@near-js/keystores'
+      - '@near-js/transactions'
+      - encoding
     dev: false
 
   /@near-wallet-selector/nightly@9.5.4(@near-js/crypto@2.3.2)(@near-js/keystores@2.3.2)(@near-js/transactions@2.3.2):

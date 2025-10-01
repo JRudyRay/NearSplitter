@@ -1,25 +1,21 @@
-const REQUIRED_ENV = ["NEXT_PUBLIC_CONTRACT_ID"] as const;
-
-type RequiredEnvKeys = (typeof REQUIRED_ENV)[number];
-
-type EnvShape = Record<RequiredEnvKeys, string> & {
+type EnvShape = {
+  NEXT_PUBLIC_CONTRACT_ID: string;
   NEXT_PUBLIC_NEAR_NETWORK?: string;
 };
 
 export function loadEnv(): EnvShape {
-  const values: Partial<EnvShape> = {};
+  // In Next.js 15, process.env must be accessed directly, not dynamically
+  const contractId = process.env.NEXT_PUBLIC_CONTRACT_ID;
+  const network = process.env.NEXT_PUBLIC_NEAR_NETWORK;
 
-  for (const key of REQUIRED_ENV) {
-    const value = process.env[key];
-    if (!value) {
-      throw new Error(`Missing required env var ${key}. Add it to .env.local`);
-    }
-    values[key] = value;
+  if (!contractId) {
+    throw new Error(
+      `Missing required env var NEXT_PUBLIC_CONTRACT_ID. Add it to .env.local`
+    );
   }
 
-  if (process.env.NEXT_PUBLIC_NEAR_NETWORK) {
-    values.NEXT_PUBLIC_NEAR_NETWORK = process.env.NEXT_PUBLIC_NEAR_NETWORK;
-  }
-
-  return values as EnvShape;
+  return {
+    NEXT_PUBLIC_CONTRACT_ID: contractId,
+    NEXT_PUBLIC_NEAR_NETWORK: network,
+  };
 }

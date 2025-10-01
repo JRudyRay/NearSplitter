@@ -47,6 +47,7 @@ enum StorageKey {
     CirclesByOwner,
     StorageDeposits,
     MetadataCache,
+    Confirmations,
 }
 
 #[derive(BorshDeserialize, BorshSerialize, Serialize, Deserialize, Clone)]
@@ -123,6 +124,9 @@ pub struct NearSplitter {
     storage_deposits: LookupMap<AccountId, u128>,
     metadata_cache: LookupMap<AccountId, FungibleTokenMetadata>,
     next_circle_index: u64,
+    /// Tracks which members have confirmed the ledger for each circle
+    /// Key: circle_id, Value: Vec of account_ids who confirmed
+    confirmations: LookupMap<String, Vec<AccountId>>,
 }
 
 #[near_bindgen]
@@ -137,6 +141,36 @@ impl NearSplitter {
             storage_deposits: LookupMap::new(StorageKey::StorageDeposits),
             metadata_cache: LookupMap::new(StorageKey::MetadataCache),
             next_circle_index: 0,
+            confirmations: LookupMap::new(StorageKey::Confirmations),
+        }
+    }
+
+    /// Migration method to add confirmations field to existing contract
+    #[init(ignore_state)]
+    #[private]
+    pub fn migrate() -> Self {
+        #[derive(BorshDeserialize)]
+        struct OldNearSplitter {
+            circles: UnorderedMap<String, Circle>,
+            expenses: LookupMap<String, Vec<Expense>>,
+            settlements: LookupMap<String, Vec<Settlement>>,
+            circles_by_owner: LookupMap<AccountId, Vec<String>>,
+            storage_deposits: LookupMap<AccountId, u128>,
+            metadata_cache: LookupMap<AccountId, FungibleTokenMetadata>,
+            next_circle_index: u64,
+        }
+
+        let old: OldNearSplitter = env::state_read().expect("Failed to read state");
+        
+        Self {
+            circles: old.circles,
+            expenses: old.expenses,
+            settlements: old.settlements,
+            circles_by_owner: old.circles_by_owner,
+            storage_deposits: old.storage_deposits,
+            metadata_cache: old.metadata_cache,
+            next_circle_index: old.next_circle_index,
+            confirmations: LookupMap::new(StorageKey::Confirmations),
         }
     }
 
@@ -158,6 +192,23 @@ impl NearSplitter {
             .iter()
             .filter_map(|id| self.circles.get(id))
             .collect()
+    }
+
+    /// Get all circles where the given account is a member (including owned circles)
+    pub fn list_circles_by_member(
+        &self,
+        account_id: AccountId,
+        from: Option<u64>,
+        limit: Option<u64>,
+    ) -> Vec<Circle> {
+        let all_circles: Vec<Circle> = self
+            .circles
+            .iter()
+            .filter(|(_, circle)| circle.members.contains(&account_id))
+            .map(|(_, circle)| circle)
+            .collect();
+        
+        paginate_vec(&all_circles, from.unwrap_or(0), limit.unwrap_or(50))
     }
 
     pub fn list_expenses(
@@ -390,6 +441,9 @@ impl NearSplitter {
         expenses.push(expense);
         self.expenses.insert(&circle_id, &expenses);
 
+        // Reset confirmations when new expense is added
+        self.confirmations.remove(&circle_id);
+
         self.emit_event(
             "expense_add",
             json!([
@@ -496,6 +550,7 @@ impl NearSplitter {
         }
     }
 
+    #[payable]
     pub fn storage_deposit(
         &mut self,
         account_id: Option<AccountId>,
@@ -706,6 +761,92 @@ pub trait ExtSelf {
         amount: U128,
         token_id: AccountId,
     ) -> String;
+}
+
+#[near_bindgen]
+impl NearSplitter {
+    /// Confirm the ledger for a circle. Once all members confirm, settlement can proceed.
+    pub fn confirm_ledger(&mut self, circle_id: String) {
+        let account = env::predecessor_account_id();
+        self.assert_registered(&account);
+
+        let circle = self
+            .circles
+            .get(&circle_id)
+            .unwrap_or_else(|| env::panic_str("Circle not found"));
+
+        require!(
+            circle.members.iter().any(|m| m == &account),
+            "Only circle members can confirm"
+        );
+
+        let mut confirmations = self.confirmations.get(&circle_id).unwrap_or_default();
+        
+        require!(
+            !confirmations.iter().any(|c| c == &account),
+            "Already confirmed"
+        );
+
+        confirmations.push(account.clone());
+        self.confirmations.insert(&circle_id, &confirmations);
+
+        self.emit_event(
+            "ledger_confirmed",
+            json!({
+                "circle_id": circle_id,
+                "account_id": account,
+                "confirmations": confirmations.len(),
+                "total_members": circle.members.len(),
+            }),
+        );
+
+        // If all members confirmed, emit event
+        if confirmations.len() == circle.members.len() {
+            self.emit_event(
+                "all_confirmed",
+                json!({
+                    "circle_id": circle_id,
+                    "ready_for_settlement": true,
+                }),
+            );
+        }
+    }
+
+    /// Get the list of accounts that have confirmed the ledger for a circle
+    pub fn get_confirmations(&self, circle_id: String) -> Vec<AccountId> {
+        self.confirmations.get(&circle_id).unwrap_or_default()
+    }
+
+    /// Check if all members have confirmed the ledger
+    pub fn is_fully_confirmed(&self, circle_id: String) -> bool {
+        let circle = self.circles.get(&circle_id);
+        if circle.is_none() {
+            return false;
+        }
+        let circle = circle.unwrap();
+        let confirmations = self.confirmations.get(&circle_id).unwrap_or_default();
+        confirmations.len() == circle.members.len()
+    }
+
+    /// Reset confirmations for a circle (e.g., after adding new expenses)
+    pub fn reset_confirmations(&mut self, circle_id: String) {
+        let account = env::predecessor_account_id();
+        let circle = self
+            .circles
+            .get(&circle_id)
+            .unwrap_or_else(|| env::panic_str("Circle not found"));
+
+        require!(circle.owner == account, "Only circle owner can reset confirmations");
+
+        self.confirmations.remove(&circle_id);
+        
+        self.emit_event(
+            "confirmations_reset",
+            json!({
+                "circle_id": circle_id,
+            }),
+        );
+    }
 }
 
 fn paginate_vec<T: Clone>(items: &[T], from: u64, limit: u64) -> Vec<T> {

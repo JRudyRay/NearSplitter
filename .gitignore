@@ -4,16 +4,25 @@ node_modules/
 .next/
 out/
 coverage/
+dist/
+build/
 
 # Rust
-/target/
+target/
+**/target/
 Cargo.lock
+**/Cargo.lock
+
+# WASM Build Artifacts
+*.wasm
+**/*.wasm
 
 # Logs
 yarn-debug.log*
 yarn-error.log*
 npm-debug.log*
 pnpm-debug.log*
+*.log
 
 # Env
 .env
@@ -28,7 +37,19 @@ frontend/.env
 .idea/
 .DS_Store
 Thumbs.db
-
-# Misc
 *.swp
 *.swo
+
+# OS
+.DS_Store
+Thumbs.db
+*.bak
+*~
+
+# Test
+coverage/
+.nyc_output/
+
+# NEAR
+neardev/
+.near/
