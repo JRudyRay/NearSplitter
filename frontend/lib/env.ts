@@ -4,15 +4,10 @@ type EnvShape = {
 };
 
 export function loadEnv(): EnvShape {
-  // In Next.js 15, process.env must be accessed directly, not dynamically
-  const contractId = process.env.NEXT_PUBLIC_CONTRACT_ID;
-  const network = process.env.NEXT_PUBLIC_NEAR_NETWORK;
-
-  if (!contractId) {
-    throw new Error(
-      `Missing required env var NEXT_PUBLIC_CONTRACT_ID. Add it to .env.local`
-    );
-  }
+  // In Next.js 15 static exports, env vars must be inlined at build time
+  // Reference them directly so they get replaced during build
+  const contractId = process.env.NEXT_PUBLIC_CONTRACT_ID || 'nearsplitter-5134.testnet';
+  const network = process.env.NEXT_PUBLIC_NEAR_NETWORK || 'testnet';
 
   return {
     NEXT_PUBLIC_CONTRACT_ID: contractId,
