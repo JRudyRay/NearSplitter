@@ -8,7 +8,6 @@ import { setupMeteorWallet } from "@near-wallet-selector/meteor-wallet";
 import { setupLedger } from "@near-wallet-selector/ledger";
 import { setupNightly } from "@near-wallet-selector/nightly";
 import { getNearConfig } from "@/lib/near/config";
-import { utils } from "near-api-js";
 import "@near-wallet-selector/modal-ui/styles.css";
 
 interface SimpleNearContextValue {
@@ -20,7 +19,7 @@ interface SimpleNearContextValue {
   status: "idle" | "loading" | "ready" | "error";
   
   // Contract interaction methods
-  call: (methodName: string, args: Record<string, unknown>, options?: { attachedDeposit?: string; gas?: string }) => Promise<any>;
+  call: (methodName: string, args: Record<string, unknown>, options?: { attachedDeposit?: string; gas?: string }) => Promise<unknown>;
   view: <T>(methodName: string, args: Record<string, unknown>) => Promise<T>;
 }
 
@@ -58,7 +57,7 @@ export function SimpleNearProvider({ children }: { children: React.ReactNode }) 
       }
 
       // Subscribe to account changes
-      selector.store.observable.subscribe((state: any) => {
+      selector.store.observable.subscribe((state: { accounts: Array<{ accountId: string }> }) => {
         if (state.accounts.length > 0) {
           setAccountId(state.accounts[0].accountId);
         } else {

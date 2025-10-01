@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState, type ChangeEvent, type FormEvent, type MouseEvent } from 'react';
+import { useCallback, useEffect, useMemo, useState, type ChangeEvent, type FormEvent } from 'react';
 import { Loader2, PlusCircle, Wallet } from 'lucide-react';
 import { useNear } from '@/lib/hooks/use-near';
 import { Button } from '@/components/ui/button';
@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input';
 import { useContractView } from '@/lib/hooks/use-contract-view';
 import { useContractCall } from '@/lib/hooks/use-contract-call';
 import { useLocalStorage } from '@/lib/hooks/use-local-storage';
-import { formatNearAmount, formatTimestamp, parseNearAmount, shortenAccountId } from '@/lib/utils/format';
+import { formatNearAmount, formatTimestamp, parseNearAmount } from '@/lib/utils/format';
 import { buildEqualShares, uniq } from '@/lib/utils/shares';
 import type {
   BalanceView,
@@ -340,16 +340,6 @@ export default function HomePage() {
     [selectedCircleId, confirmLedgerMutation, circleConfirmations, isFullyConfirmed]
   );
 
-  const removeTrackedCircle = useCallback(
-    (circleId: string) => {
-  setTrackedCircleIds((prev: string[]) => prev.filter((id: string) => id !== circleId));
-      if (selectedCircleId === circleId) {
-        setSelectedCircleId(null);
-      }
-    },
-    [selectedCircleId, setTrackedCircleIds]
-  );
-
   return (
     <main className="mx-auto flex max-w-7xl flex-col gap-8 px-4 py-8 sm:px-6 lg:px-8">
       {/* Header */}
@@ -488,7 +478,7 @@ export default function HomePage() {
             <div className="rounded-2xl border border-gray-800 bg-gradient-to-br from-gray-900 to-gray-950 p-6 shadow-lg">
               <h2 className="text-xl font-bold text-white">Join Existing Circle</h2>
               <p className="mt-2 text-sm text-gray-400">
-                Enter a circle ID to join as a member. You'll be added to the member list.
+                Enter a circle ID to join as a member. You&apos;ll be added to the member list.
               </p>
               <form className="mt-4 space-y-3" onSubmit={handleJoinCircle}>
                 <div className="flex gap-2">
