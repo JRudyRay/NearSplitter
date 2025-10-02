@@ -5,7 +5,7 @@ Split expenses fairly with friends, powered by NEAR blockchain.
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 [![NEAR Protocol](https://img.shields.io/badge/NEAR-Protocol-00C08B)](https://near.org)
 
-**Try it now:** https://jrudyray.github.io/NearSplitter-git/  
+**Try it now:** https://jrudyray.github.io/NearSplitter/  
 **Contract:** `nearsplitter-5134.testnet`
 
 ## Why NearSplitter?
@@ -28,7 +28,7 @@ Ever been on a trip where tracking who paid for what becomes a nightmare? NearSp
 
 ### Just want to use it?
 
-1. Go to https://jrudyray.github.io/NearSplitter-git/
+1. Go to https://jrudyray.github.io/NearSplitter/
 2. Connect your NEAR wallet (you'll need a testnet account — they're free)
 3. Pay the one-time storage fee (about 0.0025 NEAR, roughly $0.001)
 4. Create a circle or join one with a Circle ID from a friend
@@ -46,8 +46,8 @@ That's it. You're ready to track expenses.
 
 ```bash
 # Clone and install
-git clone https://github.com/JRudyRay/NearSplitter-git.git
-cd NearSplitter-git/frontend
+git clone https://github.com/JRudyRay/NearSplitter.git
+cd NearSplitter/frontend
 pnpm install
 
 # Configure

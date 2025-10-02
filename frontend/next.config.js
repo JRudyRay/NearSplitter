@@ -4,7 +4,7 @@ const nextConfig = {
   output: 'export',
   
   // Set base path for GitHub Pages (repository name)
-  basePath: process.env.NODE_ENV === 'production' ? '/NearSplitter-git' : '',
+  basePath: process.env.NODE_ENV === 'production' ? '/NearSplitter' : '',
   
   // Disable image optimization for static export
   images: {
