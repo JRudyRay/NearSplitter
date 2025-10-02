@@ -1,250 +1,121 @@
-# 🎯 NearSplitter
+# NearSplitter
 
-> A decentralized expense sharing platform built on NEAR Protocol with group consensus and automatic settlement
+Split expenses fairly with friends, powered by NEAR blockchain.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 [![NEAR Protocol](https://img.shields.io/badge/NEAR-Protocol-00C08B)](https://near.org)
-[![Next.js](https://img.shields.io/badge/Next.js-15-black)](https://nextjs.org)
 
-**Live Demo:** https://jrudyray.github.io/NearSplitter-git/  
+**Try it now:** https://jrudyray.github.io/NearSplitter-git/  
 **Contract:** `nearsplitter-5134.testnet`
 
-## ✨ Features
+## Why NearSplitter?
 
-### 🔐 Decentralized & Trustless
-- Built on NEAR Protocol blockchain
-- No central server - your data lives on-chain
-- Connect with NEAR Wallet (MyNearWallet, Meteor, etc.)
+Ever been on a trip where tracking who paid for what becomes a nightmare? NearSplitter solves this by putting all your shared expenses on the blockchain. No central company, no hidden fees, just transparent expense tracking that everyone can verify.
 
-### 👥 Smart Circle Management
-- **Auto-Discovery**: Automatically finds all circles you're a member of
-- Create private expense-sharing circles with friends
-- Join existing circles with Circle ID
-- Real-time member synchronization
+### What makes it different
 
-### 💰 Expense Tracking & Settlement
-- Add expenses with custom descriptions and amounts
-- Automatic fair splitting among all members
-- **Group Consensus**: Everyone confirms before settlement
-- View detailed balance ledgers
-- Smart settlement suggestions (who pays whom)
+**Fully decentralized** — Your data lives on NEAR's blockchain, not on someone's server that could disappear tomorrow.
 
-### ✅ Confirmation System
-- Democratic expense approval workflow
-- Track who has confirmed the ledger
-- Visual progress indicators
-- "Ready for Settlement" when all members confirm
-- Auto-reset confirmations when new expenses are added
+**Group consensus** — Before any settlement happens, everyone in the group reviews and confirms the ledger. No surprises, no disputes.
 
-### 💎 Modern UI/UX
-- Clean, responsive design with Tailwind CSS
-- Real-time updates (refreshes every 30 seconds)
-- Full wallet addresses visible (no truncation)
-- Copy-to-clipboard for easy sharing
-- Mobile-friendly interface
+**Smart settlements** — Instead of everyone paying everyone else, the app calculates the minimum number of transactions needed to settle up.
 
-## 🚀 Quick Start
+**Auto-discovery** — Join a circle once, and you'll automatically see it whenever you connect your wallet. No need to manually track circle IDs.
 
-### For Users (No Installation Required)
+**Actually transparent** — Every expense, every split, every confirmation is recorded on-chain and verifiable by anyone.
 
-1. **Visit the App**: https://jrudyray.github.io/NearSplitter-git/
-2. **Connect Your Wallet**: Click "Connect Wallet" and sign in with your NEAR account
-3. **Register Storage**: One-time 0.01 NEAR fee for on-chain storage
-4. **Create or Join a Circle**: 
-   - Create a new circle for your group
-   - Or join an existing one with a Circle ID
-5. **Start Tracking Expenses**: Add expenses and watch the magic happen!
+## Getting Started
 
-### For Developers
+### Just want to use it?
 
-#### Prerequisites
+1. Go to https://jrudyray.github.io/NearSplitter-git/
+2. Connect your NEAR wallet (you'll need a testnet account — they're free)
+3. Pay the one-time storage fee (about 0.0025 NEAR, roughly $0.001)
+4. Create a circle or join one with a Circle ID from a friend
 
-- **Node.js** ≥ 18.18
-- **pnpm** ≥ 8 (install via `corepack enable`)
-- **Rust** ≥ 1.90.0 (for contract development)
-- **NEAR CLI** (for contract deployment)
-- **wasm-opt** from Binaryen (for contract optimization)
+That's it. You're ready to track expenses.
 
-#### Installation
+### Want to develop or deploy your own?
 
-```powershell
-# Clone the repository
+**You'll need:**
+- Node.js 18+ and pnpm 8+
+- Rust toolchain (if modifying the contract)
+- A NEAR testnet account
+
+**Quick setup:**
+
+```bash
+# Clone and install
 git clone https://github.com/JRudyRay/NearSplitter-git.git
-cd NearSplitter-git
+cd NearSplitter-git/frontend
+pnpm install
 
-# Install frontend dependencies
-cd frontend
-corepack pnpm install
+# Configure
+cp .env.local.example .env.local
+# Edit .env.local with your contract ID
 
-# Set up environment variables
-copy .env.local.example .env.local
-# Edit .env.local with your settings
+# Run locally
+pnpm dev
 ```
 
-#### Running Locally
+Open http://localhost:3000 and you're running locally.
 
-```powershell
-# Start the development server
-cd frontend
-corepack pnpm dev
+**To build the contract:**
 
-# Open http://localhost:3000
-```
-
-#### Building the Contract
-
-```powershell
-# Navigate to contract directory
+```bash
 cd contracts/near_splitter
-
-# Build the contract
 cargo build --target wasm32-unknown-unknown --release
 
-# Optimize with wasm-opt (REQUIRED for NEAR)
-wasm-opt -Oz --signext-lowering --converge --strip-producers `
-  target/wasm32-unknown-unknown/release/near_splitter.wasm `
+# Optimize (required for NEAR)
+wasm-opt -Oz --signext-lowering --converge --strip-producers \
+  target/wasm32-unknown-unknown/release/near_splitter.wasm \
   -o contract_optimized.wasm
 
-# Deploy to NEAR
+# Deploy
 near deploy YOUR_ACCOUNT.testnet contract_optimized.wasm
 ```
 
-## 📚 Project Structure
+## How It Works
 
-```
-NearSplitter-git/
-├── contracts/
-│   └── near_splitter/        # Rust smart contract
-│       ├── src/
-│       │   └── lib.rs        # Main contract code
-│       ├── Cargo.toml        # Rust dependencies
-│       └── Makefile.toml     # Build configuration
-├── frontend/                 # Next.js web application
-│   ├── app/
-│   │   ├── page.tsx          # Main UI
-│   │   └── layout.tsx        # App layout
-│   ├── components/           # React components
-│   ├── lib/
-│   │   ├── near/             # NEAR integration
-│   │   ├── hooks/            # Custom React hooks
-│   │   └── utils/            # Utility functions
-│   └── package.json
-├── scripts/                  # Automation scripts
-├── docs/                     # Documentation
-└── README.md
-```
+**Create a circle** — Give it a name like "Tokyo Trip 2025" and share the circle ID with your friends.
 
-## 🎯 How It Works
+**Add expenses** — Someone paid for dinner? Add it with a description and amount. The app automatically splits it equally among everyone who was there.
 
-### 1. Circle Creation
-- Anyone can create a circle (generates unique ID)
-- Creator becomes the first member
-- Share the Circle ID with friends
+**Confirm together** — Before settling up, everyone reviews the ledger and confirms. You'll see a progress bar showing who's confirmed.
 
-### 2. Adding Expenses
-- Any member can add an expense
-- Expenses are split equally among all members
-- Stored permanently on NEAR blockchain
+**Settle up** — Once everyone confirms, the app shows exactly who should pay whom, minimizing the number of transactions needed.
 
-### 3. Ledger Confirmation
-- After expenses are added, members review the ledger
-- Each member clicks "Confirm Ledger" to approve
-- Progress tracker shows how many have confirmed
-- Settlement unlocks when everyone confirms
+All of this is stored on NEAR's blockchain, so there's a permanent, verifiable record of everything.
 
-### 4. Smart Settlement
-- Algorithm calculates optimal payment flows
-- Minimizes number of transactions needed
-- Shows exactly who owes whom
-- Execute settlements directly through NEAR
+## Tech Stack
 
-## 🔧 Configuration
+Built with Next.js 15, TypeScript, and Tailwind CSS on the frontend. The smart contract is written in Rust using the NEAR SDK. Everything deploys as a static site to GitHub Pages, and all state lives on-chain.
 
-### Environment Variables
+No backend servers, no databases, no surveillance. Just you, your friends, and the blockchain.
 
-Create `frontend/.env.local`:
+## Deployment
 
-```env
-# NEAR Network Configuration
-NEXT_PUBLIC_NEAR_NETWORK=testnet
-NEXT_PUBLIC_CONTRACT_ID=nearsplitter-5134.testnet
+This repo auto-deploys to GitHub Pages whenever you push to `main`. Check `.github/workflows/deploy.yml` for the setup. The contract lives on NEAR testnet at `nearsplitter-5134.testnet`.
 
-# Wallet Connection
-NEXT_PUBLIC_WALLET_URL=https://testnet.mynearwallet.com/
-```
+If you want to deploy your own version, you'll need to:
+1. Deploy your own contract to NEAR
+2. Update the contract ID in your build environment variables
+3. Push to your GitHub Pages
 
-### GitHub Pages Deployment
+See `DEPLOYMENT.md` for the full guide.
 
-The app is configured for static export to GitHub Pages:
+## Contributing
 
-```javascript
-// next.config.js
-module.exports = {
-  output: 'export',
-  basePath: process.env.NODE_ENV === 'production' ? '/NearSplitter-git' : '',
-  images: { unoptimized: true }
-}
-```
+Found a bug? Want to add a feature? PRs are welcome.
 
-## 📖 Documentation
+## License
 
-- [Quick Start Guide](./QUICKSTART.md) - Get started in 5 minutes
-- [Testing Guide](./TESTING_GUIDE.md) - How to test the application
-- [Deployment Guide](./docs/DEPLOYMENT_GUIDE.md) - Contract deployment instructions
-- [Auto-Discovery Feature](./docs/AUTO_DISCOVERY.md) - How circle discovery works
-- [Development History](./docs/) - Feature updates and fixes
+MIT — do whatever you want with this code.
 
-## 🔐 Security
+## Questions?
 
-- All transactions require wallet signature
-- Smart contract audited and tested
-- No private keys stored in frontend
-- Open-source and verifiable on-chain
-
-## 🛠 Technology Stack
-
-### Smart Contract
-- **Rust** - Systems programming language
-- **NEAR SDK** 5.1.0 - Contract development framework
-- **Borsh** - Binary serialization
-
-### Frontend
-- **Next.js** 15.5.4 - React framework
-- **TypeScript** - Type-safe JavaScript
-- **Tailwind CSS** - Utility-first styling
-- **SWR** - Data fetching and caching
-- **Vitest** - Unit testing
-
-### Infrastructure
-- **NEAR Protocol** - Layer 1 blockchain
-- **GitHub Pages** - Static hosting
-- **GitHub Actions** - CI/CD automation
-
-## 🤝 Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
-
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/AmazingFeature`)
-3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
-4. Push to the branch (`git push origin feature/AmazingFeature`)
-5. Open a Pull Request
-
-## 📝 License
-
-This project is licensed under the MIT License - see the [LICENSE](./LICENSE) file for details.
-
-## 🙏 Acknowledgments
-
-- Built with [NEAR Protocol](https://near.org)
-- Inspired by Tricount and Splitwise
-- Community feedback and testing
-
-## 📞 Support
-
-- **Issues**: [GitHub Issues](https://github.com/JRudyRay/NearSplitter-git/issues)
-- **NEAR Discord**: [Join the community](https://discord.gg/near)
+Open an issue or find me on the NEAR Discord.
 
 ---
 
-Made with ❤️ on NEAR Protocol
+*Built on NEAR because expenses should be transparent, not trapped in some company's database.*
