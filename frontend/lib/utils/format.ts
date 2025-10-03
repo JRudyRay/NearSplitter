@@ -2,10 +2,13 @@ import { utils } from "near-api-js";
 
 export function formatNearAmount(amount: string | number, fractionDigits = 2): string {
   try {
-    return utils.format.formatNearAmount(String(amount), fractionDigits);
+    const formatted = utils.format.formatNearAmount(String(amount), fractionDigits);
+    // Ensure proper formatting with leading zero and exactly 2 decimal places
+    const num = parseFloat(formatted);
+    return num.toFixed(fractionDigits);
   } catch (error) {
     console.warn("Failed to format NEAR amount", error);
-    return String(amount);
+    return "0.00";
   }
 }
 

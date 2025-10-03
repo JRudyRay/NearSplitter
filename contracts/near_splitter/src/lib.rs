@@ -48,6 +48,9 @@ enum StorageKey {
     StorageDeposits,
     MetadataCache,
     Confirmations,
+    AutopayPreferences,
+    EscrowDeposits,
+    LockedCircles,
 }
 
 #[derive(BorshDeserialize, BorshSerialize, Serialize, Deserialize, Clone)]
@@ -58,6 +61,10 @@ pub struct Circle {
     pub name: String,
     pub members: Vec<AccountId>,
     pub created_ms: u64,
+    /// Optional invite code hash for private circles. If set, users must provide the code to join.
+    pub invite_code_hash: Option<String>,
+    /// When true, no new expenses can be added (settlement in progress)
+    pub locked: bool,
 }
 
 #[derive(BorshDeserialize, BorshSerialize, Serialize, Deserialize, Clone)]
@@ -127,6 +134,12 @@ pub struct NearSplitter {
     /// Tracks which members have confirmed the ledger for each circle
     /// Key: circle_id, Value: Vec of account_ids who confirmed
     confirmations: LookupMap<String, Vec<AccountId>>,
+    /// Tracks autopay preference for each user in each circle
+    /// Key: "circle_id:account_id", Value: true if autopay enabled
+    autopay_preferences: LookupMap<String, bool>,
+    /// Tracks escrowed NEAR deposits for autopay settlements
+    /// Key: "circle_id:account_id", Value: amount in yoctoNEAR
+    escrow_deposits: LookupMap<String, u128>,
 }
 
 #[near_bindgen]
@@ -142,35 +155,65 @@ impl NearSplitter {
             metadata_cache: LookupMap::new(StorageKey::MetadataCache),
             next_circle_index: 0,
             confirmations: LookupMap::new(StorageKey::Confirmations),
+            autopay_preferences: LookupMap::new(StorageKey::AutopayPreferences),
+            escrow_deposits: LookupMap::new(StorageKey::EscrowDeposits),
         }
     }
 
-    /// Migration method to add confirmations field to existing contract
+    /// Migration method to add new fields to existing contract
     #[init(ignore_state)]
     #[private]
     pub fn migrate() -> Self {
+        #[derive(BorshDeserialize, BorshSerialize)]
+        struct OldCircle {
+            id: String,
+            owner: AccountId,
+            name: String,
+            members: Vec<AccountId>,
+            created_ms: u64,
+            invite_code_hash: Option<String>,
+        }
+
         #[derive(BorshDeserialize)]
         struct OldNearSplitter {
-            circles: UnorderedMap<String, Circle>,
+            circles: UnorderedMap<String, OldCircle>,
             expenses: LookupMap<String, Vec<Expense>>,
             settlements: LookupMap<String, Vec<Settlement>>,
             circles_by_owner: LookupMap<AccountId, Vec<String>>,
             storage_deposits: LookupMap<AccountId, u128>,
             metadata_cache: LookupMap<AccountId, FungibleTokenMetadata>,
             next_circle_index: u64,
+            confirmations: LookupMap<String, Vec<AccountId>>,
         }
 
         let old: OldNearSplitter = env::state_read().expect("Failed to read state");
         
+        // Convert old circles to new circles with locked field
+        let mut new_circles: UnorderedMap<String, Circle> = UnorderedMap::new(StorageKey::Circles);
+        for (circle_id, old_circle) in old.circles.iter() {
+            let new_circle = Circle {
+                id: old_circle.id,
+                owner: old_circle.owner,
+                name: old_circle.name,
+                members: old_circle.members,
+                created_ms: old_circle.created_ms,
+                invite_code_hash: old_circle.invite_code_hash,
+                locked: false, // New field, default to false
+            };
+            new_circles.insert(&circle_id, &new_circle);
+        }
+        
         Self {
-            circles: old.circles,
+            circles: new_circles,
             expenses: old.expenses,
             settlements: old.settlements,
             circles_by_owner: old.circles_by_owner,
             storage_deposits: old.storage_deposits,
             metadata_cache: old.metadata_cache,
             next_circle_index: old.next_circle_index,
-            confirmations: LookupMap::new(StorageKey::Confirmations),
+            confirmations: old.confirmations,
+            autopay_preferences: LookupMap::new(StorageKey::AutopayPreferences),
+            escrow_deposits: LookupMap::new(StorageKey::EscrowDeposits),
         }
     }
 
@@ -201,14 +244,28 @@ impl NearSplitter {
         from: Option<u64>,
         limit: Option<u64>,
     ) -> Vec<Circle> {
-        let all_circles: Vec<Circle> = self
+        let from_index = from.unwrap_or(0) as usize;
+        let limit_count = limit.unwrap_or(50) as usize;
+        
+        // Iterate through all circles and find ones where the account is a member
+        let member_circles: Vec<Circle> = self
             .circles
-            .iter()
-            .filter(|(_, circle)| circle.members.contains(&account_id))
-            .map(|(_, circle)| circle)
+            .keys()
+            .skip(from_index)
+            .take(limit_count * 2) // Take extra to account for filtering
+            .filter_map(|circle_id| {
+                self.circles.get(&circle_id).and_then(|circle| {
+                    if circle.members.contains(&account_id) {
+                        Some(circle)
+                    } else {
+                        None
+                    }
+                })
+            })
+            .take(limit_count) // Apply final limit after filtering
             .collect();
         
-        paginate_vec(&all_circles, from.unwrap_or(0), limit.unwrap_or(50))
+        member_circles
     }
 
     pub fn list_expenses(
@@ -331,7 +388,7 @@ impl NearSplitter {
         suggestions
     }
 
-    pub fn create_circle(&mut self, name: String) -> String {
+    pub fn create_circle(&mut self, name: String, invite_code: Option<String>) -> String {
         let owner = env::predecessor_account_id();
         self.assert_registered(&owner);
         require!(!name.trim().is_empty(), "Circle name cannot be empty");
@@ -343,12 +400,23 @@ impl NearSplitter {
         let mut members = Vec::new();
         members.push(owner.clone());
 
+        // Hash the invite code if provided for security
+        let invite_code_hash = invite_code.map(|code| {
+            require!(!code.trim().is_empty(), "Invite code cannot be empty");
+            env::sha256(code.as_bytes())
+                .iter()
+                .map(|b| format!("{:02x}", b))
+                .collect::<String>()
+        });
+
         let circle = Circle {
             id: circle_id.clone(),
             owner: owner.clone(),
             name: name.clone(),
             members,
             created_ms,
+            invite_code_hash,
+            locked: false,
         };
 
         self.circles.insert(&circle_id, &circle);
@@ -359,12 +427,17 @@ impl NearSplitter {
 
         self.emit_event(
             "circle_create",
-            json!([{ "circle_id": circle_id, "owner": owner, "name": name }]),
+            json!([{ 
+                "circle_id": circle_id, 
+                "owner": owner, 
+                "name": name,
+                "is_private": circle.invite_code_hash.is_some()
+            }]),
         );
         circle.id
     }
 
-    pub fn join_circle(&mut self, circle_id: String) {
+    pub fn join_circle(&mut self, circle_id: String, invite_code: Option<String>) {
         let account = env::predecessor_account_id();
         self.assert_registered(&account);
 
@@ -372,6 +445,19 @@ impl NearSplitter {
             .circles
             .get(&circle_id)
             .unwrap_or_else(|| env::panic_str("Circle not found"));
+
+        // Verify invite code if circle is private
+        if let Some(expected_hash) = &circle.invite_code_hash {
+            let provided_code = invite_code.unwrap_or_else(|| env::panic_str("This circle requires an invite code"));
+            let provided_hash = env::sha256(provided_code.as_bytes())
+                .iter()
+                .map(|b| format!("{:02x}", b))
+                .collect::<String>();
+            require!(
+                &provided_hash == expected_hash,
+                "Invalid invite code"
+            );
+        }
 
         require!(circle.members.len() < 256, "Member cap reached");
         require!(circle.members.iter().all(|m| m != &account), "Already a member");
@@ -402,6 +488,9 @@ impl NearSplitter {
             .circles
             .get(&circle_id)
             .unwrap_or_else(|| env::panic_str("Circle not found"));
+        
+        require!(!circle.locked, "Circle is locked for settlement. Cannot add expenses.");
+        
         require!(
             circle.members.iter().any(|m| m == &payer),
             "Payer must be circle member",
@@ -766,11 +855,18 @@ pub trait ExtSelf {
 #[near_bindgen]
 impl NearSplitter {
     /// Confirm the ledger for a circle. Once all members confirm, settlement can proceed.
-    pub fn confirm_ledger(&mut self, circle_id: String) {
+    /// First confirmation locks the circle (no new expenses). 
+    /// If all members have autopay enabled, automatically distributes escrowed funds.
+    /// Confirm the ledger for a circle. 
+    /// This automatically enables autopay and requires escrow deposit if user has debt.
+    /// Once all members confirm, settlement proceeds automatically.
+    #[payable]
+    pub fn confirm_ledger(&mut self, circle_id: String) -> Promise {
         let account = env::predecessor_account_id();
+        let deposit = env::attached_deposit().as_yoctonear();
         self.assert_registered(&account);
 
-        let circle = self
+        let mut circle = self
             .circles
             .get(&circle_id)
             .unwrap_or_else(|| env::panic_str("Circle not found"));
@@ -787,28 +883,282 @@ impl NearSplitter {
             "Already confirmed"
         );
 
+        // Calculate user's current debt (negative balance)
+        let balances = self.compute_balances(circle_id.clone());
+        let user_balance = balances
+            .iter()
+            .find(|b| b.account_id == account)
+            .map(|b| b.net.0)
+            .unwrap_or(0);
+
+        // If user has debt, require escrow deposit
+        if user_balance < 0 {
+            let debt = user_balance.unsigned_abs();
+            require!(
+                deposit >= debt,
+                &format!("Must deposit {} yoctoNEAR to cover your debt of {} yoctoNEAR", deposit, debt)
+            );
+
+            // Store the deposit in escrow
+            let escrow_key = format!("{}:{}", circle_id, account);
+            let existing_deposit = self.escrow_deposits.get(&escrow_key).unwrap_or(0);
+            self.escrow_deposits.insert(&escrow_key, &(existing_deposit + deposit));
+
+            self.emit_event(
+                "escrow_deposited",
+                json!({
+                    "circle_id": circle_id.clone(),
+                    "account_id": account.clone(),
+                    "amount": U128(deposit),
+                    "total_escrowed": U128(existing_deposit + deposit),
+                }),
+            );
+        } else if deposit > 0 {
+            // User is creditor or even, but deposited anyway - refund
+            Promise::new(account.clone()).transfer(yocto_to_token(deposit));
+        }
+
+        // Automatically enable autopay for this user
+        let autopay_key = format!("{}:{}", circle_id, account);
+        self.autopay_preferences.insert(&autopay_key, &true);
+
+        self.emit_event(
+            "autopay_enabled",
+            json!({
+                "circle_id": circle_id.clone(),
+                "account_id": account.clone(),
+            }),
+        );
+
+        // Lock the circle on first confirmation
+        if confirmations.is_empty() && !circle.locked {
+            circle.locked = true;
+            self.circles.insert(&circle_id, &circle);
+            
+            self.emit_event(
+                "circle_locked",
+                json!({
+                    "circle_id": circle_id.clone(),
+                    "message": "Circle locked for settlement. No new expenses allowed.",
+                }),
+            );
+        }
+
         confirmations.push(account.clone());
         self.confirmations.insert(&circle_id, &confirmations);
 
         self.emit_event(
             "ledger_confirmed",
             json!({
-                "circle_id": circle_id,
+                "circle_id": circle_id.clone(),
                 "account_id": account,
                 "confirmations": confirmations.len(),
                 "total_members": circle.members.len(),
             }),
         );
 
-        // If all members confirmed, emit event
+        // If all members confirmed, execute autopay settlements
         if confirmations.len() == circle.members.len() {
+            self.execute_autopay_settlements(circle_id)
+        } else {
+            // Not all confirmed yet, return no-op promise
+            Promise::new(env::current_account_id())
+        }
+    }
+
+    /// Execute autopay settlements when all members have confirmed
+    /// Returns a Promise that must be returned from the calling public method
+    fn execute_autopay_settlements(&mut self, circle_id: String) -> Promise {
+        let circle = self.circles.get(&circle_id).expect("Circle not found");
+        
+        // Get settlement suggestions
+        let suggestions = self.suggest_settlements(circle_id.clone());
+        
+        // Determine which members have autopay enabled
+        let autopay_members: Vec<AccountId> = circle.members.iter()
+            .filter(|member| {
+                let key = format!("{}:{}", circle_id, member);
+                self.autopay_preferences.get(&key).unwrap_or(false)
+            })
+            .cloned()
+            .collect();
+
+        let all_autopay = autopay_members.len() == circle.members.len();
+        
+        // Collect transfers to make at the end
+        let mut transfers_to_make: Vec<(AccountId, u128)> = Vec::new();
+
+        if all_autopay {
+            // All members have autopay - distribute escrowed funds
             self.emit_event(
-                "all_confirmed",
+                "autopay_triggered",
                 json!({
                     "circle_id": circle_id,
-                    "ready_for_settlement": true,
+                    "message": "All members have autopay. Distributing escrowed funds.",
+                    "settlement_count": suggestions.len(),
+                    "autopay_members": autopay_members.len(),
                 }),
             );
+
+            // Execute actual transfers from escrow
+            for suggestion in &suggestions {
+                if suggestion.amount.0 > 0 {
+                    let from_key = format!("{}:{}", circle_id, suggestion.from);
+                    let escrowed = self.escrow_deposits.get(&from_key).unwrap_or(0);
+                    
+                    self.emit_event(
+                        "settlement_processing",
+                        json!({
+                            "circle_id": circle_id,
+                            "from": suggestion.from,
+                            "to": suggestion.to,
+                            "amount": suggestion.amount,
+                            "escrowed": U128(escrowed),
+                        }),
+                    );
+                    
+                    if escrowed >= suggestion.amount.0 {
+                        // Deduct from escrow
+                        let remaining = escrowed - suggestion.amount.0;
+                        if remaining > 0 {
+                            self.escrow_deposits.insert(&from_key, &remaining);
+                        } else {
+                            self.escrow_deposits.remove(&from_key);
+                        }
+
+                        // Queue the transfer (don't execute yet)
+                        transfers_to_make.push((suggestion.to.clone(), suggestion.amount.0));
+
+                        // Record settlement
+                        let settlement = Settlement {
+                            circle_id: circle_id.clone(),
+                            from: suggestion.from.clone(),
+                            to: suggestion.to.clone(),
+                            amount: suggestion.amount,
+                            token: None,
+                            ts_ms: timestamp_ms(),
+                            tx_kind: "autopay_escrow".to_string(),
+                        };
+                        self.record_settlement(settlement);
+
+                        self.emit_event(
+                            "settlement_executed",
+                            json!({
+                                "circle_id": circle_id,
+                                "from": suggestion.from,
+                                "to": suggestion.to,
+                                "amount": suggestion.amount,
+                            }),
+                        );
+                    } else {
+                        self.emit_event(
+                            "settlement_failed",
+                            json!({
+                                "circle_id": circle_id,
+                                "from": suggestion.from,
+                                "to": suggestion.to,
+                                "amount": suggestion.amount,
+                                "escrowed": U128(escrowed),
+                                "reason": "Insufficient escrow",
+                            }),
+                        );
+                    }
+                }
+            }
+
+            // Refund any remaining escrow to members
+            for member in &circle.members {
+                let escrow_key = format!("{}:{}", circle_id, member);
+                if let Some(remaining) = self.escrow_deposits.get(&escrow_key) {
+                    if remaining > 0 {
+                        self.escrow_deposits.remove(&escrow_key);
+                        // Queue refund transfer
+                        transfers_to_make.push((member.clone(), remaining));
+                    }
+                }
+            }
+
+        } else {
+            // Partial autopay - optimize settlements
+            self.emit_event(
+                "partial_autopay",
+                json!({
+                    "circle_id": circle_id,
+                    "autopay_members": autopay_members.len(),
+                    "total_members": circle.members.len(),
+                }),
+            );
+
+            // Execute transfers for autopay members only
+            for suggestion in &suggestions {
+                let from_autopay = autopay_members.contains(&suggestion.from);
+                let to_autopay = autopay_members.contains(&suggestion.to);
+
+                if from_autopay && suggestion.amount.0 > 0 {
+                    // Debtor has autopay - use escrow
+                    let from_key = format!("{}:{}", circle_id, suggestion.from);
+                    let escrowed = self.escrow_deposits.get(&from_key).unwrap_or(0);
+                    
+                    if escrowed >= suggestion.amount.0 {
+                        // Deduct from escrow
+                        let remaining = escrowed - suggestion.amount.0;
+                        if remaining > 0 {
+                            self.escrow_deposits.insert(&from_key, &remaining);
+                        } else {
+                            self.escrow_deposits.remove(&from_key);
+                        }
+
+                        // Queue transfer
+                        transfers_to_make.push((suggestion.to.clone(), suggestion.amount.0));
+
+                        // Record settlement
+                        let settlement = Settlement {
+                            circle_id: circle_id.clone(),
+                            from: suggestion.from.clone(),
+                            to: suggestion.to.clone(),
+                            amount: suggestion.amount,
+                            token: None,
+                            ts_ms: timestamp_ms(),
+                            tx_kind: if to_autopay { "autopay_escrow" } else { "autopay_manual_recipient" }.to_string(),
+                        };
+                        self.record_settlement(settlement);
+                    }
+                }
+            }
+        }
+
+        // Clear expenses and confirmations (do this BEFORE returning promises)
+        self.expenses.remove(&circle_id);
+        self.confirmations.remove(&circle_id);
+        
+        // Unlock circle for new expenses
+        let mut updated_circle = circle.clone();
+        updated_circle.locked = false;
+        self.circles.insert(&circle_id, &updated_circle);
+
+        self.emit_event(
+            "ledger_settled",
+            json!({
+                "circle_id": circle_id,
+                "all_autopay": all_autopay,
+            }),
+        );
+
+        // NOW create and return all promises batched together
+        if transfers_to_make.is_empty() {
+            // No transfers needed
+            Promise::new(env::current_account_id())
+        } else {
+            // Create first promise
+            let (first_recipient, first_amount) = &transfers_to_make[0];
+            let mut batch = Promise::new(first_recipient.clone()).transfer(yocto_to_token(*first_amount));
+            
+            // Chain remaining promises
+            for (recipient, amount) in transfers_to_make.iter().skip(1) {
+                batch = batch.and(Promise::new(recipient.clone()).transfer(yocto_to_token(*amount)));
+            }
+            
+            batch
         }
     }
 
@@ -846,6 +1196,136 @@ impl NearSplitter {
                 "circle_id": circle_id,
             }),
         );
+    }
+
+    /// Set autopay preference for the caller in a specific circle
+    /// If enabling autopay and user has debt, requires deposit equal to debt amount
+    #[payable]
+    pub fn set_autopay(&mut self, circle_id: String, enabled: bool) {
+        let account = env::predecessor_account_id();
+        let deposit = env::attached_deposit().as_yoctonear();
+        self.assert_registered(&account);
+
+        let circle = self
+            .circles
+            .get(&circle_id)
+            .unwrap_or_else(|| env::panic_str("Circle not found"));
+
+        require!(
+            circle.members.iter().any(|m| m == &account),
+            "Must be a circle member to set autopay"
+        );
+
+        let key = format!("{}:{}", circle_id, account);
+
+        if enabled {
+            // Calculate user's current debt (negative balance)
+            let balances = self.compute_balances(circle_id.clone());
+            let user_balance = balances
+                .iter()
+                .find(|b| b.account_id == account)
+                .map(|b| b.net.0)
+                .unwrap_or(0);
+
+            if user_balance < 0 {
+                // User owes money - require escrow deposit
+                let debt = user_balance.unsigned_abs();
+                require!(
+                    deposit >= debt,
+                    &format!("Must deposit {} yoctoNEAR to cover debt", debt)
+                );
+
+                // Store the deposit in escrow
+                let escrow_key = format!("{}:{}", circle_id, account);
+                let existing_deposit = self.escrow_deposits.get(&escrow_key).unwrap_or(0);
+                self.escrow_deposits.insert(&escrow_key, &(existing_deposit + deposit));
+
+                self.emit_event(
+                    "escrow_deposited",
+                    json!({
+                        "circle_id": circle_id,
+                        "account_id": account,
+                        "amount": U128(deposit),
+                        "total_escrowed": U128(existing_deposit + deposit),
+                    }),
+                );
+            } else if deposit > 0 {
+                // User is creditor or even, but deposited anyway - refund
+                Promise::new(account.clone()).transfer(yocto_to_token(deposit));
+            }
+        } else {
+            // Disabling autopay - refund any escrowed funds
+            let escrow_key = format!("{}:{}", circle_id, account);
+            if let Some(escrowed_amount) = self.escrow_deposits.get(&escrow_key) {
+                if escrowed_amount > 0 {
+                    self.escrow_deposits.remove(&escrow_key);
+                    Promise::new(account.clone()).transfer(yocto_to_token(escrowed_amount));
+                    
+                    self.emit_event(
+                        "escrow_refunded",
+                        json!({
+                            "circle_id": circle_id,
+                            "account_id": account,
+                            "amount": U128(escrowed_amount),
+                        }),
+                    );
+                }
+            }
+        }
+
+        self.autopay_preferences.insert(&key, &enabled);
+
+        self.emit_event(
+            "autopay_preference_set",
+            json!({
+                "circle_id": circle_id,
+                "account_id": account,
+                "enabled": enabled,
+            }),
+        );
+    }
+
+    /// Get autopay preference for a specific member in a circle
+    pub fn get_autopay(&self, circle_id: String, account_id: AccountId) -> bool {
+        let key = format!("{}:{}", circle_id, account_id);
+        self.autopay_preferences.get(&key).unwrap_or(false)
+    }
+
+    /// Check if all members in a circle have autopay enabled
+    pub fn all_members_autopay(&self, circle_id: String) -> bool {
+        let circle = self.circles.get(&circle_id);
+        if circle.is_none() {
+            return false;
+        }
+        let circle = circle.unwrap();
+        
+        circle.members.iter().all(|member| {
+            let key = format!("{}:{}", circle_id, member);
+            self.autopay_preferences.get(&key).unwrap_or(false)
+        })
+    }
+
+    /// Get required deposit amount for a member to enable autopay
+    /// Returns 0 if user is creditor or even, otherwise returns debt amount
+    pub fn get_required_autopay_deposit(&self, circle_id: String, account_id: AccountId) -> U128 {
+        let balances = self.compute_balances(circle_id);
+        let user_balance = balances
+            .iter()
+            .find(|b| b.account_id == account_id)
+            .map(|b| b.net.0)
+            .unwrap_or(0);
+
+        if user_balance < 0 {
+            U128(user_balance.unsigned_abs())
+        } else {
+            U128(0)
+        }
+    }
+
+    /// Get current escrow deposit for a member in a circle
+    pub fn get_escrow_deposit(&self, circle_id: String, account_id: AccountId) -> U128 {
+        let key = format!("{}:{}", circle_id, account_id);
+        U128(self.escrow_deposits.get(&key).unwrap_or(0))
     }
 }
 

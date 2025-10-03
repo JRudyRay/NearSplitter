@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NEAR RPC Connection Test</title>
+    <style>
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .test-card {
+            background: white;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .status {
+            padding: 10px;
+            border-radius: 4px;
+            margin: 10px 0;
+            font-weight: bold;
+        }
+        .success { background: #d4edda; color: #155724; }
+        .error { background: #f8d7da; color: #721c24; }
+        .warning { background: #fff3cd; color: #856404; }
+        .info { background: #d1ecf1; color: #0c5460; }
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        button:hover { background: #0056b3; }
+        pre {
+            background: #f4f4f4;
+            padding: 10px;
+            border-radius: 4px;
+            overflow-x: auto;
+        }
+        code { font-family: 'Courier New', monospace; }
+    </style>
+</head>
+<body>
+    <h1>🔍 NEAR RPC Connection Diagnostic</h1>
+    
+    <div class="test-card">
+        <h2>Test 1: Pagoda RPC (Recommended)</h2>
+        <button onclick="testRPC('https://rpc.testnet.pagoda.co', 'pagoda')">Test Pagoda RPC</button>
+        <div id="pagoda-result"></div>
+    </div>
+
+    <div class="test-card">
+        <h2>Test 2: Official NEAR RPC</h2>
+        <button onclick="testRPC('https://rpc.testnet.near.org', 'near')">Test NEAR RPC</button>
+        <div id="near-result"></div>
+    </div>
+
+    <div class="test-card">
+        <h2>Test 3: Lava RPC</h2>
+        <button onclick="testRPC('https://near-testnet.lava.build', 'lava')">Test Lava RPC</button>
+        <div id="lava-result"></div>
+    </div>
+
+    <div class="test-card">
+        <h2>Test 4: FastNear RPC</h2>
+        <button onclick="testRPC('https://testnet.rpc.fastnear.com', 'fastnear')">Test FastNear RPC</button>
+        <div id="fastnear-result"></div>
+    </div>
+
+    <div class="test-card">
+        <h2>Browser Information</h2>
+        <div id="browser-info"></div>
+    </div>
+
+    <div class="test-card">
+        <h2>Troubleshooting Steps</h2>
+        <ol>
+            <li><strong>If all tests fail:</strong> Your ad blocker or firewall is blocking ALL RPC endpoints
+                <ul>
+                    <li>✅ Disable ad blocker (uBlock Origin, AdBlock Plus, etc.)</li>
+                    <li>✅ Try incognito/private mode</li>
+                    <li>✅ Check firewall settings</li>
+                </ul>
+            </li>
+            <li><strong>If some tests pass:</strong> Use the working RPC in your .env.local:
+                <pre>NEXT_PUBLIC_NEAR_RPC_URL=&lt;working-url&gt;</pre>
+            </li>
+            <li><strong>If errors show CORS:</strong> This is normal for some endpoints, but fetch should still work in your app</li>
+        </ol>
+    </div>
+
+    <script>
+        // Show browser info
+        const browserInfo = document.getElementById('browser-info');
+        browserInfo.innerHTML = `
+            <div class="info">
+                <strong>User Agent:</strong><br>
+                <code>${navigator.userAgent}</code><br><br>
+                <strong>Platform:</strong> ${navigator.platform}<br>
+                <strong>Language:</strong> ${navigator.language}<br>
+                <strong>Online:</strong> ${navigator.onLine ? '✅ Yes' : '❌ No'}
+            </div>
+        `;
+
+        async function testRPC(url, id) {
+            const resultDiv = document.getElementById(id + '-result');
+            resultDiv.innerHTML = '<div class="info">Testing... ⏳</div>';
+
+            const startTime = Date.now();
+
+            try {
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        jsonrpc: '2.0',
+                        id: 'test',
+                        method: 'status',
+                        params: []
+                    })
+                });
+
+                const duration = Date.now() - startTime;
+
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+
+                const data = await response.json();
+
+                if (data.error) {
+                    throw new Error(data.error.message || JSON.stringify(data.error));
+                }
+
+                resultDiv.innerHTML = `
+                    <div class="success">
+                        ✅ SUCCESS! RPC is working<br>
+                        <strong>Response time:</strong> ${duration}ms<br>
+                        <strong>Network:</strong> ${data.result?.chain_id || 'Unknown'}<br>
+                        <strong>Block height:</strong> ${data.result?.sync_info?.latest_block_height || 'Unknown'}
+                    </div>
+                    <details>
+                        <summary>View full response</summary>
+                        <pre>${JSON.stringify(data, null, 2)}</pre>
+                    </details>
+                    <div class="success" style="margin-top: 10px;">
+                        <strong>✅ Use this in your .env.local:</strong><br>
+                        <code>NEXT_PUBLIC_NEAR_RPC_URL=${url}</code>
+                    </div>
+                `;
+
+            } catch (error) {
+                const duration = Date.now() - startTime;
+
+                let errorMessage = error.message;
+                let troubleshooting = '';
+
+                if (error.message === 'Failed to fetch') {
+                    errorMessage = '❌ BLOCKED - Failed to fetch';
+                    troubleshooting = `
+                        <div class="warning">
+                            <strong>This RPC endpoint is being blocked!</strong><br>
+                            Common causes:<br>
+                            • Ad blocker (uBlock Origin, AdBlock Plus, Brave Shields)<br>
+                            • Browser extension (Privacy Badger, NoScript)<br>
+                            • Firewall or antivirus software<br>
+                            • Network restrictions<br><br>
+                            <strong>Try:</strong><br>
+                            1. Disable ad blocker<br>
+                            2. Open this page in incognito mode<br>
+                            3. Check browser console (F12) for detailed errors
+                        </div>
+                    `;
+                } else if (error.message.includes('CORS')) {
+                    errorMessage = '⚠️ CORS error (but might work in your app)';
+                    troubleshooting = `
+                        <div class="info">
+                            CORS errors in this test page are normal.<br>
+                            The RPC should still work in your Next.js app.
+                        </div>
+                    `;
+                }
+
+                resultDiv.innerHTML = `
+                    <div class="error">
+                        ${errorMessage}<br>
+                        <strong>Time:</strong> ${duration}ms<br>
+                        <strong>Error:</strong> ${error.toString()}
+                    </div>
+                    ${troubleshooting}
+                    <details>
+                        <summary>View error stack</summary>
+                        <pre>${error.stack || 'No stack trace'}</pre>
+                    </details>
+                `;
+            }
+        }
+
+        // Auto-run Pagoda test on load
+        window.addEventListener('load', () => {
+            console.log('🔍 RPC Diagnostic Tool Loaded');
+            console.log('Click buttons to test different RPC endpoints');
+        });
+    </script>
+</body>
+</html>

@@ -30,6 +30,7 @@ export function useContractCall() {
     async (methodName: string, args: Record<string, unknown>, options?: CallOptions) => {
       setState({ loading: true, data: null, error: null });
       try {
+        // Official WalletSelector callFunction signature
         const outcome = await callFunction({
           contractId,
           method: methodName,

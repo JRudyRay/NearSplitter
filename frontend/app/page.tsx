@@ -10,6 +10,7 @@ import { useContractCall } from '@/lib/hooks/use-contract-call';
 import { useLocalStorage } from '@/lib/hooks/use-local-storage';
 import { formatNearAmount, formatTimestamp, parseNearAmount } from '@/lib/utils/format';
 import { buildEqualShares, uniq } from '@/lib/utils/shares';
+import { getNearConfig } from '@/lib/near/config';
 import type {
   BalanceView,
   Circle,
@@ -28,6 +29,8 @@ interface MessageState {
 
 export default function HomePage() {
   const near = useNear();
+  const config = getNearConfig();
+  const contractId = config.contractId;
   const [notification, setNotification] = useState<MessageState | null>(null);
   const [trackedKey, setTrackedKey] = useState<string>('nearsplitter:guest:circles');
   const [trackedCircleIds, setTrackedCircleIds] = useLocalStorage<string[]>(trackedKey, []);
@@ -35,8 +38,10 @@ export default function HomePage() {
   const [selectedCircleId, setSelectedCircleId] = useState<string | null>(null);
 
   const [createCircleName, setCreateCircleName] = useState('');
+  const [createCirclePassword, setCreateCirclePassword] = useState('');
+  const [usePassword, setUsePassword] = useState(false);
   const [joinCircleId, setJoinCircleId] = useState('');
-  const [trackCircleId, setTrackCircleId] = useState('');
+  const [joinCirclePassword, setJoinCirclePassword] = useState('');
   const [expenseAmount, setExpenseAmount] = useState('');
   const [expenseMemo, setExpenseMemo] = useState('');
   const [selectedParticipants, setSelectedParticipants] = useState<Record<string, boolean>>({});
@@ -49,18 +54,175 @@ export default function HomePage() {
   const addExpenseMutation = useContractCall();
   const payNativeMutation = useContractCall();
   const confirmLedgerMutation = useContractCall();
+  const setAutopayMutation = useContractCall();
 
-  const storageBounds = useContractView<StorageBalanceBounds>('storage_balance_bounds', {});
+  // SIMPLE APPROACH: Just use near.accountId to determine if logged in
+  // The registration check will happen automatically when near.accountId exists
+  
+  // Check storage bounds - this is a public query that doesn't require a signed-in account
+  const storageBounds = useContractView<StorageBalanceBounds>(
+    'storage_balance_bounds',
+    {}
+  );
+  
+  // Only check user's storage balance when user is logged in
   const storageBalance = useContractView<StorageBalance | null>(
     near.accountId ? 'storage_balance_of' : null,
     near.accountId ? { account_id: near.accountId } : null,
-    { refreshInterval: 15_000 }
+    { 
+      refreshInterval: 15_000
+    }
   );
+  const mutateStorageBalance = storageBalance.mutate;
+
+  const isRegistered = Boolean(storageBalance.data?.total);
+  const isCheckingRegistration = near.accountId && storageBalance.isLoading;
+  
+  // Debug logging for registration status
+  useEffect(() => {
+    if (near.accountId) {
+      console.log('[Registration] Status:', {
+        accountId: near.accountId,
+        isRegistered,
+        isCheckingRegistration,
+        storageData: storageBalance.data,
+        storageError: storageBalance.error,
+        storageBoundsData: storageBounds.data,
+        storageBoundsError: storageBounds.error
+      });
+    }
+  }, [near.accountId, isRegistered, isCheckingRegistration, storageBalance.data, storageBalance.error, storageBounds.data, storageBounds.error]);
+
+  // Detect successful transaction return from wallet
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    
+    const urlParams = new URLSearchParams(window.location.search);
+    const transactionHashes = urlParams.get('transactionHashes');
+    const errorCode = urlParams.get('errorCode');
+    const errorMessage = urlParams.get('errorMessage');
+    
+    // Handle transaction error
+    if (errorCode || errorMessage) {
+      console.log('[Transaction Return] Transaction failed:', { errorCode, errorMessage });
+      window.history.replaceState({}, '', window.location.pathname);
+      setNotification({ 
+        type: 'error', 
+        text: errorMessage || 'Transaction failed. Please try again.' 
+      });
+      return;
+    }
+    
+    // Handle successful transaction
+    if (transactionHashes && near.accountId) {
+      console.log('[Transaction Return] Detected transaction completion:', transactionHashes);
+      
+      // Clear URL parameters to avoid re-triggering
+      window.history.replaceState({}, '', window.location.pathname);
+      
+      console.log('[Transaction Return] Starting fast polling for registration status...');
+      
+      // Immediately check once before starting interval
+      (async () => {
+        try {
+          const balance = await near.viewFunction({
+            contractId,
+            method: 'storage_balance_of',
+            args: { account_id: near.accountId }
+          });
+          
+          if (balance && (balance as StorageBalance).total) {
+            console.log('[Transaction Return] ✓ Registration confirmed immediately!', balance);
+            mutateStorageBalance(balance as StorageBalance, false);
+            
+            // Clear any stale circle data from localStorage
+            const storageKey = `nearsplitter:${near.accountId}:circles`;
+            localStorage.removeItem(storageKey);
+            setTrackedCircleIds([]);
+            setCircleMap({});
+            setSelectedCircleId(null);
+            console.log('[Transaction Return] Cleared stale circle data');
+            
+            setNotification({ 
+              type: 'success', 
+              text: 'Registration successful! You can now use NearSplitter.' 
+            });
+            return; // Exit early, no need to poll
+          }
+        } catch (err) {
+          console.log('[Transaction Return] Initial check failed, starting polling...', err);
+        }
+      })();
+      
+      // Use aggressive polling for immediate feedback
+      let pollCount = 0;
+      const maxPolls = 20; // 20 attempts x 500ms = 10 seconds max
+      let successNotified = false;
+      
+      const pollInterval = setInterval(async () => {
+        pollCount++;
+        console.log(`[Transaction Return] Polling (${pollCount}/${maxPolls})...`);
+        
+        try {
+          const balance = await near.viewFunction({
+            contractId,
+            method: 'storage_balance_of',
+            args: { account_id: near.accountId }
+          });
+          
+          if (balance && (balance as StorageBalance).total) {
+            clearInterval(pollInterval);
+            
+            if (!successNotified) {
+              successNotified = true;
+              console.log('[Transaction Return] ✓ Registration confirmed!', balance);
+              
+              // Manually update SWR cache
+              mutateStorageBalance(balance as StorageBalance, false);
+              
+              // Clear any stale circle data from localStorage
+              const storageKey = `nearsplitter:${near.accountId}:circles`;
+              localStorage.removeItem(storageKey);
+              setTrackedCircleIds([]);
+              setCircleMap({});
+              setSelectedCircleId(null);
+              console.log('[Transaction Return] Cleared stale circle data');
+              
+              setNotification({ 
+                type: 'success', 
+                text: 'Registration successful! You can now use NearSplitter.' 
+              });
+            }
+          } else if (pollCount >= maxPolls) {
+            clearInterval(pollInterval);
+            console.warn('[Transaction Return] Polling timed out - trying one final check...');
+            
+            // One final attempt with a full page reload to clear any cache issues
+            setTimeout(() => {
+              window.location.reload();
+            }, 1000);
+          }
+        } catch (err) {
+          console.error('[Transaction Return] Poll error:', err);
+          
+          if (pollCount >= maxPolls) {
+            clearInterval(pollInterval);
+          }
+        }
+      }, 500); // Poll every 500ms (much faster!)
+      
+      // Cleanup on unmount
+      return () => {
+        clearInterval(pollInterval);
+      };
+    }
+  }, [contractId, mutateStorageBalance, near, near.accountId, near.viewFunction, setCircleMap, setNotification, setSelectedCircleId, setTrackedCircleIds]);
 
   // Fetch all circles where the user is a member (including owned circles)
+  // ONLY if the user is registered (has storage deposit)
   const memberCircles = useContractView<Circle[]>(
-    near.accountId ? 'list_circles_by_member' : null,
-    near.accountId ? { account_id: near.accountId, from: 0, limit: 100 } : null,
+    (near.accountId && isRegistered) ? 'list_circles_by_member' : null,
+    (near.accountId && isRegistered) ? { account_id: near.accountId, from: 0, limit: 100 } : null,
     { refreshInterval: 30_000 }
   );
 
@@ -89,13 +251,34 @@ export default function HomePage() {
     selectedCircleId ? { circle_id: selectedCircleId } : null,
     { refreshInterval: 15_000 }
   );
+  
+  // Autopay queries
+  const userAutopayStatus = useContractView<boolean>(
+    selectedCircleId && near.accountId ? 'get_autopay' : null,
+    selectedCircleId && near.accountId ? { circle_id: selectedCircleId, account_id: near.accountId } : null,
+    { refreshInterval: 20_000 }
+  );
+  const requiredAutopayDeposit = useContractView<string>(
+    selectedCircleId && near.accountId ? 'get_required_autopay_deposit' : null,
+    selectedCircleId && near.accountId ? { circle_id: selectedCircleId, account_id: near.accountId } : null,
+    { refreshInterval: 20_000 }
+  );
+  const userEscrowDeposit = useContractView<string>(
+    selectedCircleId && near.accountId ? 'get_escrow_deposit' : null,
+    selectedCircleId && near.accountId ? { circle_id: selectedCircleId, account_id: near.accountId } : null,
+    { refreshInterval: 20_000 }
+  );
+  const allMembersAutopay = useContractView<boolean>(
+    selectedCircleId ? 'all_members_autopay' : null,
+    selectedCircleId ? { circle_id: selectedCircleId } : null,
+    { refreshInterval: 20_000 }
+  );
 
   const selectedCircle = selectedCircleId ? circleMap[selectedCircleId] : null;
   const membersSignature = useMemo(
     () => (selectedCircle ? selectedCircle.members.join('|') : ''),
     [selectedCircle]
   );
-  const isRegistered = Boolean(storageBalance.data?.total);
 
   useEffect(() => {
     if (!near.accountId) {
@@ -137,27 +320,52 @@ export default function HomePage() {
     setSelectedParticipants(defaults);
   }, [selectedCircleId, selectedCircle, membersSignature]);
 
+  // Hydrate missing circles from localStorage - ONLY if registered
   useEffect(() => {
+    // Don't try to load circles if not registered
+    if (!isRegistered || !near.accountId) {
+      return;
+    }
+    
     const missing = trackedCircleIds.filter((id: string) => !circleMap[id]);
     if (missing.length === 0) {
       return;
     }
     (async () => {
-      const resolved = await Promise.allSettled(missing.map((id: string) => getCircle(id)));
+      const resolved = await Promise.allSettled(missing.map((id: string) => getCircle(id, near.viewFunction)));
       const next: Record<string, Circle> = {};
+      const failedIds: string[] = [];
+      
       resolved.forEach((result: PromiseSettledResult<Circle>, idx: number) => {
         if (result.status === 'fulfilled') {
           next[result.value.id] = result.value;
         } else {
-          console.warn('Failed to resolve circle', missing[idx], result.reason);
-          setNotification({ type: 'error', text: `Unable to load circle ${missing[idx]}` });
+          const circleId = missing[idx];
+          console.warn('Failed to resolve circle', circleId, result.reason);
+          failedIds.push(circleId);
+          
+          // Don't show notification for "Circle not found" errors
+          // This happens normally when localStorage has stale data
+          const errorMsg = result.reason?.message || '';
+          if (!errorMsg.includes('Circle not found') && !errorMsg.includes('not found')) {
+            setNotification({ type: 'error', text: `Unable to load circle ${circleId}` });
+          } else {
+            console.log(`[Circle] Auto-removed non-existent circle: ${circleId}`);
+          }
         }
       });
+      
+      // Remove failed circles from tracking
+      if (failedIds.length > 0) {
+        setTrackedCircleIds((prev: string[]) => prev.filter((id: string) => !failedIds.includes(id)));
+        console.log('Removed non-existent circles from tracking:', failedIds);
+      }
+      
       if (Object.keys(next).length > 0) {
         setCircleMap((prev: Record<string, Circle>) => ({ ...prev, ...next }));
       }
     })().catch((error) => console.error('Failed to hydrate circles', error));
-  }, [trackedCircleIds, circleMap]);
+  }, [trackedCircleIds, circleMap, setTrackedCircleIds, setCircleMap, setNotification, isRegistered, near.accountId, near.viewFunction]);
 
   const participantIds = useMemo(
     () => (selectedCircle ? selectedCircle.members.filter((member: string) => selectedParticipants[member]) : []),
@@ -176,6 +384,8 @@ export default function HomePage() {
     await near.signOut();
     setNotification(null);
     setSelectedCircleId(null);
+    // Refresh the page to clear all state
+    window.location.reload();
   }, [near]);
 
   const handleRegister = useCallback(async () => {
@@ -184,19 +394,22 @@ export default function HomePage() {
       return;
     }
     try {
+      console.log('[Registration] Starting storage deposit...');
+      
       // storage_deposit takes optional account_id and registration_only params
       // When account_id is null/undefined, it defaults to the caller
       await registerMutation.execute('storage_deposit', {}, {
         deposit: storageBounds.data.min,
         gas: GAS_150_TGAS
       });
-      await storageBalance.mutate();
-      setNotification({ type: 'success', text: 'Storage deposit registered successfully.' });
+      
+      // Note: User will be redirected to wallet, then back to the app
+      // The useEffect above will handle the return and check registration status
     } catch (error) {
-      console.error('Registration error:', error);
+      console.error('[Registration] Error:', error);
       setNotification({ type: 'error', text: (error as Error).message });
     }
-  }, [registerMutation, storageBounds.data, storageBalance]);
+  }, [registerMutation, storageBounds.data]);
 
   const handleCreateCircle = useCallback(
     async (event: FormEvent<HTMLFormElement>) => {
@@ -205,16 +418,28 @@ export default function HomePage() {
         setNotification({ type: 'error', text: 'Circle name cannot be empty.' });
         return;
       }
+      if (usePassword && !createCirclePassword.trim()) {
+        setNotification({ type: 'error', text: 'Password cannot be empty when protection is enabled.' });
+        return;
+      }
       try {
-        await createCircleMutation.execute('create_circle', { name: createCircleName.trim() });
+        const args: { name: string; invite_code?: string } = { 
+          name: createCircleName.trim() 
+        };
+        if (usePassword && createCirclePassword.trim()) {
+          args.invite_code = createCirclePassword.trim();
+        }
+        await createCircleMutation.execute('create_circle', args);
         setCreateCircleName('');
+        setCreateCirclePassword('');
+        setUsePassword(false);
         await memberCircles.mutate();
         setNotification({ type: 'success', text: 'Circle created!' });
       } catch (error) {
         setNotification({ type: 'error', text: (error as Error).message });
       }
     },
-    [createCircleName, createCircleMutation, memberCircles]
+    [createCircleName, createCirclePassword, usePassword, createCircleMutation, memberCircles]
   );
 
   const handleJoinCircle = useCallback(
@@ -226,8 +451,15 @@ export default function HomePage() {
         return;
       }
       try {
-        await joinCircleMutation.execute('join_circle', { circle_id: trimmed });
+        const args: { circle_id: string; invite_code?: string } = { 
+          circle_id: trimmed 
+        };
+        if (joinCirclePassword.trim()) {
+          args.invite_code = joinCirclePassword.trim();
+        }
+        await joinCircleMutation.execute('join_circle', args);
         setJoinCircleId('');
+        setJoinCirclePassword('');
   setTrackedCircleIds((prev: string[]) => uniq([...prev, trimmed]));
         await memberCircles.mutate();
         setNotification({ type: 'success', text: 'Joined circle successfully.' });
@@ -235,28 +467,7 @@ export default function HomePage() {
         setNotification({ type: 'error', text: (error as Error).message });
       }
     },
-    [joinCircleId, joinCircleMutation, memberCircles, setTrackedCircleIds]
-  );
-
-  const handleTrackCircle = useCallback(
-    async (event: FormEvent<HTMLFormElement>) => {
-      event.preventDefault();
-      const trimmed = trackCircleId.trim();
-      if (!trimmed) {
-        setNotification({ type: 'error', text: 'Provide a circle ID to track.' });
-        return;
-      }
-      try {
-        const circle = await getCircle(trimmed);
-  setCircleMap((prev: Record<string, Circle>) => ({ ...prev, [circle.id]: circle }));
-  setTrackedCircleIds((prev: string[]) => uniq([...prev, circle.id]));
-        setTrackCircleId('');
-        setNotification({ type: 'success', text: `Tracking circle ${circle.name}.` });
-      } catch (error) {
-        setNotification({ type: 'error', text: `Circle not found: ${(error as Error).message}` });
-      }
-    },
-    [trackCircleId, setTrackedCircleIds]
+    [joinCircleId, joinCirclePassword, joinCircleMutation, memberCircles, setTrackedCircleIds]
   );
 
   const handleAddExpense = useCallback(
@@ -321,23 +532,58 @@ export default function HomePage() {
 
   const handleConfirmLedger = useCallback(
     async () => {
-      if (!selectedCircleId) {
+      if (!selectedCircleId || !near.accountId) {
         setNotification({ type: 'error', text: 'No circle selected.' });
         return;
       }
+      
       try {
+        // Calculate required deposit (if user has debt)
+        const depositAmount = requiredAutopayDeposit.data && BigInt(requiredAutopayDeposit.data) > 0n 
+          ? requiredAutopayDeposit.data 
+          : '0';
+        
+        if (BigInt(depositAmount) > 0n) {
+          setNotification({ 
+            type: 'success', 
+            text: `Confirming with ${formatNearAmount(depositAmount)} Ⓝ escrow deposit...` 
+          });
+        }
+        
+        // Confirm ledger (which now automatically enables autopay and handles escrow)
         await confirmLedgerMutation.execute('confirm_ledger', 
           { circle_id: selectedCircleId },
-          { gas: GAS_150_TGAS }
+          { 
+            deposit: depositAmount,
+            gas: GAS_150_TGAS 
+          }
         );
+        
         setNotification({ type: 'success', text: 'Ledger confirmed! ✓' });
-        await circleConfirmations.mutate();
-        await isFullyConfirmed.mutate();
+        
+        // Refresh all relevant data
+        await Promise.all([
+          circleConfirmations.mutate(),
+          isFullyConfirmed.mutate(),
+          allMembersAutopay.mutate(),
+          userAutopayStatus.mutate(),
+          userEscrowDeposit.mutate()
+        ]);
       } catch (error) {
         setNotification({ type: 'error', text: (error as Error).message });
       }
     },
-    [selectedCircleId, confirmLedgerMutation, circleConfirmations, isFullyConfirmed]
+    [
+      selectedCircleId, 
+      near.accountId, 
+      requiredAutopayDeposit.data, 
+      confirmLedgerMutation, 
+      circleConfirmations, 
+      isFullyConfirmed, 
+      userAutopayStatus, 
+      userEscrowDeposit, 
+      allMembersAutopay
+    ]
   );
 
   return (
@@ -387,13 +633,35 @@ export default function HomePage() {
       {/* Storage Registration Section - Show only if not registered */}
       {near.accountId && !isRegistered && (
         <section className="rounded-2xl border-2 border-brand-500/50 bg-gradient-to-br from-brand-500/10 to-brand-600/5 p-8 shadow-xl">
-          <div className="flex items-start gap-4">
-            <div className="rounded-full bg-brand-500/20 p-3">
-              <svg className="h-6 w-6 text-brand-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
+          {isCheckingRegistration ? (
+            <div className="space-y-4">
+              <div className="flex items-center justify-center gap-3 py-8">
+                <Loader2 className="h-6 w-6 animate-spin text-brand-400" />
+                <div className="text-center">
+                  <p className="text-gray-300 font-medium">Checking registration status...</p>
+                  <p className="text-xs text-gray-500 mt-1">This may take a few moments after completing registration</p>
+                </div>
+              </div>
+              <div className="flex justify-center">
+                <Button
+                  onClick={() => {
+                    console.log('[Manual Refresh] Forcing registration status check...');
+                    storageBalance.mutate();
+                  }}
+                  className="bg-gray-700 hover:bg-gray-600 text-white text-sm"
+                >
+                  Retry Check
+                </Button>
+              </div>
             </div>
-            <div className="flex-1 space-y-4">
+          ) : (
+            <div className="flex items-start gap-4">
+              <div className="rounded-full bg-brand-500/20 p-3">
+                <svg className="h-6 w-6 text-brand-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </div>
+              <div className="flex-1 space-y-4">
               <div>
                 <h2 className="text-xl font-bold text-white">Registration Required</h2>
                 <p className="mt-2 text-sm text-gray-300">
@@ -423,6 +691,11 @@ export default function HomePage() {
                     <span className="font-semibold text-gray-300 text-xs">{near.accountId}</span>
                   </div>
                 )}
+                {storageBalance.error && (
+                  <div className="rounded bg-red-500/10 border border-red-500/30 p-2 mt-2">
+                    <p className="text-xs text-red-400">Error checking registration: {String(storageBalance.error)}</p>
+                  </div>
+                )}
               </div>
               <Button
                 onClick={handleRegister}
@@ -441,6 +714,7 @@ export default function HomePage() {
               )}
             </div>
           </div>
+          )}
         </section>
       )}
 
@@ -472,6 +746,27 @@ export default function HomePage() {
                     <PlusCircle className="h-4 w-4" />
                   </Button>
                 </div>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    id="usePassword"
+                    checked={usePassword}
+                    onChange={(e) => setUsePassword(e.target.checked)}
+                    className="h-4 w-4 rounded border-gray-700 bg-black/50 text-brand-500 focus:ring-brand-500/20"
+                  />
+                  <label htmlFor="usePassword" className="text-sm text-gray-400">
+                    Password protect this circle
+                  </label>
+                </div>
+                {usePassword && (
+                  <Input
+                    type="password"
+                    value={createCirclePassword}
+                    onChange={(event: ChangeEvent<HTMLInputElement>) => setCreateCirclePassword(event.target.value)}
+                    placeholder="Enter password"
+                    className="bg-black/50 border-gray-700 focus:border-brand-500 focus:ring-brand-500/20"
+                  />
+                )}
               </form>
             </div>
 
@@ -497,33 +792,16 @@ export default function HomePage() {
                     Join
                   </Button>
                 </div>
+                <Input
+                  type="password"
+                  value={joinCirclePassword}
+                  onChange={(event: ChangeEvent<HTMLInputElement>) => setJoinCirclePassword(event.target.value)}
+                  placeholder="Password (if required)"
+                  className="bg-black/50 border-gray-700 focus:border-brand-500 focus:ring-brand-500/20"
+                />
                 <p className="text-xs text-gray-500">
                   💡 Tip: Ask the circle owner for the circle ID (shown above the circle name)
                 </p>
-              </form>
-
-              <div className="my-4 border-t border-gray-800"></div>
-
-              <h3 className="text-lg font-semibold text-white">Track Circle (View Only)</h3>
-              <p className="mt-2 text-sm text-gray-400">
-                Track a circle without joining. You can view but not participate.
-              </p>
-              <form className="mt-3 space-y-3" onSubmit={handleTrackCircle}>
-                <div className="flex gap-2">
-                  <Input
-                    value={trackCircleId}
-                    onChange={(event: ChangeEvent<HTMLInputElement>) => setTrackCircleId(event.target.value)}
-                    placeholder="circle-123"
-                    className="flex-1 bg-black/50 border-gray-700 focus:border-brand-500 focus:ring-brand-500/20"
-                  />
-                  <Button 
-                    type="submit" 
-                    disabled={!trackCircleId.trim()}
-                    className="bg-gray-700 hover:bg-gray-600 text-white font-semibold"
-                  >
-                    Track
-                  </Button>
-                </div>
               </form>
             </div>
           </section>
@@ -757,6 +1035,88 @@ export default function HomePage() {
                           </div>
                         )}
 
+                        {/* Autopay Section - Automatically enabled when confirming */}
+                        {near.accountId && selectedCircle?.members.includes(near.accountId) && !circleConfirmations.data?.includes(near.accountId) && (
+                          <div className="space-y-4 rounded-lg border border-gray-800 bg-black/30 p-4">
+                            <div className="flex items-start gap-3">
+                              <div className="flex-1 space-y-2">
+                                <h4 className="text-sm font-semibold text-white">Confirm & Settle</h4>
+                                <p className="text-xs text-gray-400">
+                                  When you confirm, autopay is automatically enabled. If you owe money, you'll need to deposit it in escrow.
+                                </p>
+                              </div>
+                            </div>
+
+                            {/* Show user's balance and required deposit */}
+                            {circleBalances.data && near.accountId && (
+                              <>
+                                {(() => {
+                                  const userBalance = circleBalances.data.find((b: BalanceView) => b.account_id === near.accountId);
+                                  const balance = userBalance ? BigInt(userBalance.net) : 0n;
+                                  const required = requiredAutopayDeposit.data ? BigInt(requiredAutopayDeposit.data) : 0n;
+                                  const escrowed = userEscrowDeposit.data ? BigInt(userEscrowDeposit.data) : 0n;
+
+                                  return (
+                                    <div className="space-y-2 rounded-md bg-gray-900/60 p-3 text-xs">
+                                      <div className="flex justify-between">
+                                        <span className="text-gray-400">Your balance:</span>
+                                        <span className={`font-bold ${balance >= 0n ? 'text-brand-400' : 'text-rose-400'}`}>
+                                          {balance >= 0n ? '+' : ''}{formatNearAmount(balance.toString())} Ⓝ
+                                        </span>
+                                      </div>
+                                      
+                                      {required > 0n && (
+                                        <>
+                                          <div className="flex justify-between">
+                                            <span className="text-gray-400">Required deposit:</span>
+                                            <span className="font-bold text-rose-400">
+                                              {formatNearAmount(required.toString())} Ⓝ
+                                            </span>
+                                          </div>
+                                          {escrowed > 0n && (
+                                            <div className="flex justify-between">
+                                              <span className="text-gray-400">Already deposited:</span>
+                                              <span className="font-bold text-brand-400">
+                                                {formatNearAmount(escrowed.toString())} Ⓝ
+                                              </span>
+                                            </div>
+                                          )}
+                                          <div className="mt-2 rounded border border-amber-500/30 bg-amber-500/10 p-2">
+                                            <p className="text-xs text-amber-400">
+                                              💡 <strong>{formatNearAmount(required.toString())} Ⓝ</strong> will be deposited when you confirm
+                                            </p>
+                                          </div>
+                                        </>
+                                      )}
+                                      
+                                      {required === 0n && balance >= 0n && (
+                                        <p className="text-gray-400">
+                                          ✓ No deposit required (you are owed money)
+                                        </p>
+                                      )}
+                                    </div>
+                                  );
+                                })()}
+                              </>
+                            )}
+
+                            {/* Show all members autopay status */}
+                            {allMembersAutopay.data !== undefined && (
+                              <div className={`rounded-md p-2 text-xs ${
+                                allMembersAutopay.data 
+                                  ? 'bg-brand-500/10 text-brand-400 border border-brand-500/30' 
+                                  : 'bg-gray-900/60 text-gray-400'
+                              }`}>
+                                {allMembersAutopay.data ? (
+                                  <span>🚀 All members confirmed! Settlement will be automatic.</span>
+                                ) : (
+                                  <span>⏳ Waiting for all members to confirm for automatic settlement</span>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        )}
+
                         {near.accountId && selectedCircle?.members.includes(near.accountId) && (
                           <Button
                             onClick={handleConfirmLedger}
@@ -768,9 +1128,15 @@ export default function HomePage() {
                                 : 'bg-brand-500 hover:bg-brand-600 text-black font-semibold'
                             }`}
                           >
-                            {circleConfirmations.data?.includes(near.accountId) 
-                              ? '✓ You have confirmed'
-                              : 'Confirm Ledger'}
+                            {confirmLedgerMutation.loading ? (
+                              'Processing...'
+                            ) : circleConfirmations.data?.includes(near.accountId) ? (
+                              '✓ You have confirmed'
+                            ) : (
+                              requiredAutopayDeposit.data && BigInt(requiredAutopayDeposit.data) > 0n
+                                ? `Confirm & Deposit ${formatNearAmount(requiredAutopayDeposit.data)} Ⓝ`
+                                : 'Confirm Ledger'
+                            )}
                           </Button>
                         )}
                       </div>

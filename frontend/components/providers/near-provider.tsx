@@ -16,8 +16,22 @@ interface NearProviderProps {
 export function NearProvider({ children }: NearProviderProps) {
   const config = getNearConfig();
   
+  console.log('[NearProvider] Initializing with config:', {
+    networkId: config.networkId,
+    nodeUrl: config.nodeUrl,
+    contractId: config.contractId
+  });
+  
   const walletSelectorConfig = {
-    network: config.networkId as "testnet" | "mainnet",
+    network: {
+      networkId: config.networkId,
+      nodeUrl: config.nodeUrl,
+      helperUrl: config.helperUrl,
+      explorerUrl: config.explorerUrl,
+      indexerUrl: config.helperUrl, // Use helperUrl as indexerUrl fallback
+    },
+    // Removed createAccessKeyFor to avoid 0.25 NEAR charge on every login
+    // Users will approve transactions in their wallet instead
     modules: [
       setupMyNearWallet(),
       setupMeteorWallet(),

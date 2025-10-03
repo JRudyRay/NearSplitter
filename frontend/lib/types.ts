@@ -4,6 +4,7 @@ export interface Circle {
   name: string;
   members: string[];
   created_ms: number;
+  invite_code_hash?: string | null;
 }
 
 export interface MemberShare {
