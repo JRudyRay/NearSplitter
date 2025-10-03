@@ -54,7 +54,6 @@ export default function HomePage() {
   const addExpenseMutation = useContractCall();
   const payNativeMutation = useContractCall();
   const confirmLedgerMutation = useContractCall();
-  const setAutopayMutation = useContractCall();
 
   // SIMPLE APPROACH: Just use near.accountId to determine if logged in
   // The registration check will happen automatically when near.accountId exists
@@ -1042,7 +1041,7 @@ export default function HomePage() {
                               <div className="flex-1 space-y-2">
                                 <h4 className="text-sm font-semibold text-white">Confirm & Settle</h4>
                                 <p className="text-xs text-gray-400">
-                                  When you confirm, autopay is automatically enabled. If you owe money, you'll need to deposit it in escrow.
+                                  When you confirm, autopay is automatically enabled. If you owe money, you&apos;ll need to deposit it in escrow.
                                 </p>
                               </div>
                             </div>
