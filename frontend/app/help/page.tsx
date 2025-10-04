@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { CircleDot, Wallet, Users, Receipt, CheckCircle2, Coins, Zap, Shield } from 'lucide-react';
+import { CircleDot, Wallet, Receipt, CheckCircle2, Coins, Zap, Shield } from 'lucide-react';
 import { Logo } from '@/components/ui/logo';
 
 export default function HelpPage() {
@@ -132,7 +132,7 @@ export default function HelpPage() {
             </li>
             <li className="flex gap-2">
               <span className="text-blue-400">•</span>
-              <span>Check your balance before confirming to know how much you'll need to deposit</span>
+              <span>Check your balance before confirming to know how much you&apos;ll need to deposit</span>
             </li>
             <li className="flex gap-2">
               <span className="text-blue-400">•</span>

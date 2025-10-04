@@ -1,5 +1,5 @@
 import React from 'react';
-import { CircleDot, Users, Receipt, Zap } from 'lucide-react';
+import { CircleDot, Receipt, Zap } from 'lucide-react';
 
 interface EmptyStateProps {
   type: 'circles' | 'expenses' | 'settlements';
