@@ -22,6 +22,7 @@ body {
   background: linear-gradient(to bottom, #000000, #0a0a0a);
   min-height: 100vh;
   color: var(--near-white);
+  font-size: 16px; /* Increased base font size */
 }
 
 /* Custom scrollbar for NEAR theme */
