@@ -1113,26 +1113,26 @@ export default function HomePage() {
         <>
           {/* Circle Management - Show on Circles tab - Enhanced cards with better visual hierarchy */}
           <section 
-            className={`grid gap-4 md:gap-4 md:grid-cols-2 ${activeTab !== 'circles' ? 'hidden' : ''}`}
+            className={`grid gap-3 md:gap-3 md:grid-cols-2 ${activeTab !== 'circles' ? 'hidden' : ''}`}
             id="circles-panel"
             role="tabpanel"
             aria-labelledby="circles-tab"
           >
-            <article className={`rounded-xl border border-gray-800/50 bg-gradient-to-br from-gray-900 to-gray-950 p-3 sm:p-4 shadow-lg hover:shadow-xl transition-all duration-300 ${currentTheme.glowSm} backdrop-blur-sm`}>
-              <header className="mb-2">
-                <h2 className="text-lg sm:text-xl font-bold text-white flex items-center gap-3">
-                  <div className={`w-10 h-10 rounded-xl ${currentTheme.bgSoft} flex items-center justify-center ${currentTheme.glow}`}>
-                    <PlusCircle className={`w-5 h-5 ${currentTheme.text}`} aria-hidden="true" />
+            <article className={`rounded-xl border border-gray-800/50 bg-gradient-to-br from-gray-900 to-gray-950 p-3 shadow-lg hover:shadow-xl transition-all duration-300 ${currentTheme.glowSm} backdrop-blur-sm`}>
+              <header className="mb-3">
+                <h2 className="text-base sm:text-lg font-bold text-white flex items-center gap-2">
+                  <div className={`w-8 h-8 rounded-lg ${currentTheme.bgSoft} flex items-center justify-center ${currentTheme.glow}`}>
+                    <PlusCircle className={`w-4 h-4 ${currentTheme.text}`} aria-hidden="true" />
                   </div>
                   Create Circle
                 </h2>
-                <p className="mt-3 text-base text-gray-400 leading-relaxed">
-                  Start a new expense group with friends or colleagues.
+                <p className="mt-1.5 text-sm text-gray-400">
+                  Start a new expense group
                 </p>
               </header>
-              <form className="space-y-2" onSubmit={handleCreateCircle}>
-                <div className="space-y-2">
-                  <label htmlFor="circle-name" className="text-lg font-semibold text-gray-300 block">
+              <form className="space-y-2.5" onSubmit={handleCreateCircle}>
+                <div className="space-y-1.5">
+                  <label htmlFor="circle-name" className="text-sm font-semibold text-gray-300 block">
                     Circle Name
                   </label>
                   <Input
@@ -1140,13 +1140,13 @@ export default function HomePage() {
                     value={createCircleName}
                     onChange={(event: ChangeEvent<HTMLInputElement>) => setCreateCircleName(event.target.value)}
                     placeholder="Trip to Lisbon"
-                    className={`w-full bg-black/50 border-gray-700 ${currentTheme.focusBorder} ${currentTheme.focusRing} text-lg h-12 transition-all duration-200 hover:border-gray-600`}
+                    className={`w-full bg-black/50 border-gray-700 ${currentTheme.focusBorder} ${currentTheme.focusRing} text-sm h-10 transition-all duration-200 hover:border-gray-600`}
                     required
                     aria-required="true"
                   />
                 </div>
-                <div className="space-y-2">
-                  <label htmlFor="circle-password" className="text-lg font-semibold text-gray-300 block">
+                <div className="space-y-1.5">
+                  <label htmlFor="circle-password" className="text-sm font-semibold text-gray-300 block">
                     Circle Password
                   </label>
                   <div className="relative">
@@ -1180,30 +1180,30 @@ export default function HomePage() {
                   type="submit" 
                   loading={createCircleMutation.loading} 
                   disabled={!near.accountId || !isRegistered}
-                  className={`w-full ${currentTheme.bg} ${currentTheme.hover} text-black font-bold text-lg sm:text-lg h-10 sm:h-11 ${currentTheme.glow} hover:scale-[1.02] transition-all duration-200 shadow-lg`}
+                  className={`w-full ${currentTheme.bg} ${currentTheme.hover} text-black font-bold text-sm h-9 ${currentTheme.glow} hover:scale-[1.02] transition-all duration-200 shadow-lg`}
                   aria-label="Create new circle"
                 >
-                  <PlusCircle className="h-5 w-5 mr-2" aria-hidden="true" />
+                  <PlusCircle className="h-4 w-4 mr-1.5" aria-hidden="true" />
                   Create Circle
                 </Button>
               </form>
             </article>
 
-            <article className={`rounded-xl border border-gray-800/50 bg-gradient-to-br from-gray-900 to-gray-950 p-3 sm:p-4 shadow-lg hover:shadow-xl transition-all duration-300 ${currentTheme.glowSm} backdrop-blur-sm`}>
-              <header className="mb-2">
-                <h2 className="text-lg sm:text-xl font-bold text-white flex items-center gap-3">
-                  <div className={`w-10 h-10 rounded-xl ${currentTheme.bgSoft} flex items-center justify-center ${currentTheme.glow}`}>
-                    <Users className={`w-5 h-5 ${currentTheme.text}`} aria-hidden="true" />
+            <article className={`rounded-xl border border-gray-800/50 bg-gradient-to-br from-gray-900 to-gray-950 p-3 shadow-lg hover:shadow-xl transition-all duration-300 ${currentTheme.glowSm} backdrop-blur-sm`}>
+              <header className="mb-3">
+                <h2 className="text-base sm:text-lg font-bold text-white flex items-center gap-2">
+                  <div className={`w-8 h-8 rounded-lg ${currentTheme.bgSoft} flex items-center justify-center ${currentTheme.glow}`}>
+                    <Users className={`w-4 h-4 ${currentTheme.text}`} aria-hidden="true" />
                   </div>
                   Join Existing Circle
                 </h2>
-                <p className="mt-3 text-base text-gray-400 leading-relaxed">
-                  Enter a circle ID to join as a member. You&apos;ll be added to the member list.
+                <p className="mt-1.5 text-sm text-gray-400">
+                  Enter Circle ID to join
                 </p>
               </header>
-              <form className="space-y-2" onSubmit={handleJoinCircle}>
-                <div className="space-y-2">
-                  <label htmlFor="join-circle-id" className="text-lg font-semibold text-gray-300 block">
+              <form className="space-y-2.5" onSubmit={handleJoinCircle}>
+                <div className="space-y-1.5">
+                  <label htmlFor="join-circle-id" className="text-sm font-semibold text-gray-300 block">
                     Circle ID
                   </label>
                   <Input
@@ -1211,13 +1211,13 @@ export default function HomePage() {
                     value={joinCircleId}
                     onChange={(event: ChangeEvent<HTMLInputElement>) => setJoinCircleId(event.target.value)}
                     placeholder="circle-0"
-                    className={`w-full bg-black/50 border-gray-700 ${currentTheme.focusBorder} ${currentTheme.focusRing} text-lg h-12 transition-all duration-200 hover:border-gray-600`}
+                    className={`w-full bg-black/50 border-gray-700 ${currentTheme.focusBorder} ${currentTheme.focusRing} text-sm h-10 transition-all duration-200 hover:border-gray-600`}
                     required
                     aria-required="true"
                   />
                 </div>
-                <div className="space-y-2">
-                  <label htmlFor="join-password" className="text-lg font-semibold text-gray-300 block">
+                <div className="space-y-1.5">
+                  <label htmlFor="join-password" className="text-sm font-semibold text-gray-300 block">
                     Password
                   </label>
                   <div className="relative">
@@ -1227,17 +1227,17 @@ export default function HomePage() {
                       value={joinCirclePassword}
                       onChange={(event: ChangeEvent<HTMLInputElement>) => setJoinCirclePassword(event.target.value)}
                       placeholder="Enter circle password"
-                      className={`w-full bg-black/50 border-gray-700 ${currentTheme.focusBorder} ${currentTheme.focusRing} pr-12 text-lg h-12 transition-all duration-200 hover:border-gray-600`}
+                      className={`w-full bg-black/50 border-gray-700 ${currentTheme.focusBorder} ${currentTheme.focusRing} pr-10 text-sm h-10 transition-all duration-200 hover:border-gray-600`}
                       required
                       aria-required="true"
                     />
                     <button
                       type="button"
                       onClick={() => setShowJoinPassword(!showJoinPassword)}
-                      className={`absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 ${currentTheme.hoverText} transition-all duration-200 p-2 rounded-lg hover:bg-white/5 min-w-[44px] min-h-[44px] flex items-center justify-center`}
+                      className={`absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 ${currentTheme.hoverText} transition-all duration-200 p-1.5 rounded-lg hover:bg-white/5 min-w-[36px] min-h-[36px] flex items-center justify-center`}
                       aria-label={showJoinPassword ? "Hide password" : "Show password"}
                     >
-                      {showJoinPassword ? <EyeOff className="h-5 w-5" aria-hidden="true" /> : <Eye className="h-5 w-5" aria-hidden="true" />}
+                      {showJoinPassword ? <EyeOff className="h-4 w-4" aria-hidden="true" /> : <Eye className="h-4 w-4" aria-hidden="true" />}
                     </button>
                   </div>
                 </div>
@@ -1245,17 +1245,17 @@ export default function HomePage() {
                   type="submit" 
                   loading={joinCircleMutation.loading} 
                   disabled={!near.accountId || !isRegistered}
-                  className={`w-full ${currentTheme.bg} ${currentTheme.hover} text-black font-bold text-lg sm:text-lg h-10 sm:h-11 ${currentTheme.glow} hover:scale-[1.02] transition-all duration-200 shadow-lg`}
+                  className={`w-full ${currentTheme.bg} ${currentTheme.hover} text-black font-bold text-sm h-9 ${currentTheme.glow} hover:scale-[1.02] transition-all duration-200 shadow-lg`}
                   aria-label="Join circle"
                 >
                   Join Circle
                 </Button>
-                <div className="flex items-start gap-2 p-3 rounded-xl bg-gray-800/30 border border-gray-700/30">
-                  <svg className="w-5 h-5 text-amber-400 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
+                <div className="flex items-start gap-2 p-2.5 rounded-lg bg-gray-800/30 border border-gray-700/30">
+                  <svg className="w-4 h-4 text-amber-400 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
                     <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
                   </svg>
-                  <p className="text-lg text-gray-400">
-                    <strong className="text-gray-300">Tip:</strong> Ask the circle owner for the circle ID and password
+                  <p className="text-sm text-gray-400">
+                    <strong className="text-gray-300">Tip:</strong> Ask the owner for ID and password
                   </p>
                 </div>
               </form>
@@ -1263,20 +1263,20 @@ export default function HomePage() {
           </section>
 
       {/* Circles List and Details - Circle list always visible, details shown when circle selected */}
-      <section className="grid gap-3 lg:grid-cols-[340px_1fr]" aria-label="Circle management">
+      <section className="grid gap-2.5 lg:grid-cols-[300px_1fr]" aria-label="Circle management">
         <aside className="space-y-2" role="complementary" aria-label="Circle list">
-          <nav className={`rounded-xl border border-gray-800/50 bg-gradient-to-br from-gray-900 to-gray-950 p-3 sm:p-4 shadow-xl hover:shadow-xl transition-all duration-300 ${currentTheme.glowSm} backdrop-blur-sm`}>
+          <nav className={`rounded-xl border border-gray-800/50 bg-gradient-to-br from-gray-900 to-gray-950 p-2.5 shadow-xl hover:shadow-xl transition-all duration-300 ${currentTheme.glowSm} backdrop-blur-sm`}>
             <header className="mb-2">
-              <h3 className="text-lg sm:text-xl font-bold text-white flex items-center gap-2">
-                <div className={`w-8 h-8 rounded-lg ${currentTheme.bgSoft} flex items-center justify-center`}>
-                  <Users className={`w-4 h-4 ${currentTheme.text}`} aria-hidden="true" />
+              <h3 className="text-base sm:text-lg font-bold text-white flex items-center gap-2">
+                <div className={`w-7 h-7 rounded-lg ${currentTheme.bgSoft} flex items-center justify-center`}>
+                  <Users className={`w-3.5 h-3.5 ${currentTheme.text}`} aria-hidden="true" />
                 </div>
                 Your Circles
               </h3>
-              <p className="mt-2 text-lg text-gray-400">
+              <p className="mt-1 text-sm text-gray-400">
                 {trackedCircleIds.length === 0 
-                  ? "No circles yet. Create or join one above."
-                  : `${trackedCircleIds.length} circle${trackedCircleIds.length === 1 ? '' : 's'} • Click to view details`
+                  ? "No circles yet"
+                  : `${trackedCircleIds.length} circle${trackedCircleIds.length === 1 ? '' : 's'}`
                 }
               </p>
             </header>
@@ -1299,7 +1299,7 @@ export default function HomePage() {
                   <li key={circleId}>
                     <button
                       onClick={() => setSelectedCircleId(circleId)}
-                      className={`w-full rounded-xl border px-4 py-3.5 text-left text-lg transition-all duration-200 cursor-pointer transform min-h-[64px] ${
+                      className={`w-full rounded-lg border px-3 py-2.5 text-left text-sm transition-all duration-200 cursor-pointer transform ${
                         selectedCircleId === circleId
                           ? `${currentTheme.border} ${currentTheme.bgSoft} ${currentTheme.text100} shadow-lg ${currentTheme.glow} scale-[1.02] ring-2 ${currentTheme.focusRing.replace('focus:', '')}`
                           : `border-gray-800 bg-gray-900/60 text-gray-200 ${currentTheme.hoverBorder} hover:bg-gray-900 hover:shadow-md hover:scale-[1.01]`
@@ -1307,23 +1307,23 @@ export default function HomePage() {
                       aria-pressed={selectedCircleId === circleId}
                       aria-label={`Select ${circle ? circle.name : circleId}`}
                     >
-                      <div className="flex items-start gap-3">
-                        <div className={`w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 ${
+                      <div className="flex items-center gap-2">
+                        <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${
                           selectedCircleId === circleId 
                             ? currentTheme.bg 
                             : 'bg-gray-800'
                         }`}>
-                          <Users className={`w-5 h-5 ${
+                          <Users className={`w-4 h-4 ${
                             selectedCircleId === circleId 
                               ? 'text-black' 
                               : 'text-gray-400'
                           }`} aria-hidden="true" />
                         </div>
                         <div className="flex-1 min-w-0">
-                          <span className="font-semibold block truncate">{circle ? circle.name : circleId}</span>
+                          <span className="font-semibold block truncate text-sm">{circle ? circle.name : circleId}</span>
                           {circle && (
-                            <p className="mt-1 text-lg text-gray-400 flex items-center gap-1.5">
-                              <span className="flex items-center gap-1">
+                            <p className="mt-0.5 text-xs text-gray-400 flex items-center gap-1">
+                              <span className="flex items-center gap-0.5">
                                 <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
                                   <path d="M9 6a3 3 0 11-6 0 3 3 0 016 0zM17 6a3 3 0 11-6 0 3 3 0 016 0zM12.93 17c.046-.327.07-.66.07-1a6.97 6.97 0 00-1.5-4.33A5 5 0 0119 16v1h-6.07zM6 11a5 5 0 015 5v1H1v-1a5 5 0 015-5z" />
                                 </svg>
@@ -1344,20 +1344,20 @@ export default function HomePage() {
           </nav>
         </aside>
 
-        <div className="space-y-6">
+        <div className="space-y-3">
           {selectedCircle ? (
-            <div className="space-y-6">
-              <article className="rounded-xl border border-gray-800/50 bg-gradient-to-br from-gray-900 to-gray-950 p-3 sm:p-4 shadow-xl hover:shadow-xl transition-all duration-300 backdrop-blur-sm">
-                <header className="flex flex-col gap-4">
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div className="space-y-3">
+              <article className="rounded-xl border border-gray-800/50 bg-gradient-to-br from-gray-900 to-gray-950 p-3 shadow-xl hover:shadow-xl transition-all duration-300 backdrop-blur-sm">
+                <header className="flex flex-col gap-3">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                     <div className="flex-1">
-                      <div className="flex items-center gap-3 mb-2">
-                        <div className={`w-12 h-12 rounded-xl ${currentTheme.bg} flex items-center justify-center ${currentTheme.glow}`}>
-                          <Users className="w-6 h-6 text-black" aria-hidden="true" />
+                      <div className="flex items-center gap-2 mb-1.5">
+                        <div className={`w-9 h-9 rounded-lg ${currentTheme.bg} flex items-center justify-center ${currentTheme.glow}`}>
+                          <Users className="w-4 h-4 text-black" aria-hidden="true" />
                         </div>
-                        <h2 className="text-lg sm:text-xl font-bold text-white">{selectedCircle.name}</h2>
+                        <h2 className="text-base sm:text-lg font-bold text-white">{selectedCircle.name}</h2>
                       </div>
-                      <dl className="flex flex-col gap-2 text-lg text-gray-400">
+                      <dl className="flex flex-col gap-1 text-sm text-gray-400">
                         <div className="flex items-center gap-2">
                           <dt className="sr-only">Owner</dt>
                           <svg className="w-4 h-4 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
@@ -1386,15 +1386,15 @@ export default function HomePage() {
                   </div>
                   
                   {/* Circle ID for sharing */}
-                  <div className={`rounded-xl border border-gray-700/50 bg-gray-900/50 p-4 ${currentTheme.glowSm} backdrop-blur-sm`}>
-                    <label htmlFor="circle-id-display" className="text-lg font-semibold text-gray-400 mb-2 block flex items-center gap-2">
-                      <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
+                  <div className={`rounded-lg border border-gray-700/50 bg-gray-900/50 p-2.5 ${currentTheme.glowSm} backdrop-blur-sm`}>
+                    <label htmlFor="circle-id-display" className="text-xs font-semibold text-gray-400 mb-1.5 block flex items-center gap-1.5">
+                      <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
                         <path fillRule="evenodd" d="M12.586 4.586a2 2 0 112.828 2.828l-3 3a2 2 0 01-2.828 0 1 1 0 00-1.414 1.414 4 4 0 005.656 0l3-3a4 4 0 00-5.656-5.656l-1.5 1.5a1 1 0 101.414 1.414l1.5-1.5zm-5 5a2 2 0 012.828 0 1 1 0 101.414-1.414 4 4 0 00-5.656 0l-3 3a4 4 0 105.656 5.656l1.5-1.5a1 1 0 10-1.414-1.414l-1.5 1.5a2 2 0 11-2.828-2.828l3-3z" clipRule="evenodd" />
                       </svg>
-                      Circle ID (share this with others to join)
+                      Share Circle ID
                     </label>
-                    <div className="flex items-center gap-3">
-                      <code id="circle-id-display" className={`flex-1 text-lg ${currentTheme.text} font-mono break-all bg-black/30 px-3 py-2 rounded-lg border border-gray-800`}>
+                    <div className="flex items-center gap-2">
+                      <code id="circle-id-display" className={`flex-1 text-xs ${currentTheme.text} font-mono break-all bg-black/30 px-2 py-1.5 rounded-lg border border-gray-800`}>
                         {selectedCircle.id}
                       </code>
                       <button
@@ -1403,10 +1403,10 @@ export default function HomePage() {
                           navigator.clipboard.writeText(selectedCircle.id);
                           setNotification({ type: 'success', text: 'Circle ID copied!' });
                         }}
-                        className={`text-lg px-4 py-2 rounded-lg ${currentTheme.bg} hover:opacity-90 text-black font-semibold transition-all duration-200 flex-shrink-0 min-h-[44px] flex items-center gap-2 ${currentTheme.glow} hover:scale-105`}
+                        className={`text-xs px-2.5 py-1.5 rounded-lg ${currentTheme.bg} hover:opacity-90 text-black font-semibold transition-all duration-200 flex-shrink-0 flex items-center gap-1.5 ${currentTheme.glow} hover:scale-105`}
                         aria-label="Copy circle ID to clipboard"
                       >
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
                         </svg>
                         Copy
@@ -1418,15 +1418,15 @@ export default function HomePage() {
                 {/* EXPENSES TAB: Add Expense Form */}
                 {activeTab === 'expenses' && (
                   <div className="mt-2">
-                    <form onSubmit={handleAddExpense} className={`space-y-3 rounded-xl border border-gray-800/50 bg-gradient-to-br from-black/60 to-gray-950/60 p-3 sm:p-4 shadow-xl hover:shadow-xl transition-all duration-300 ${currentTheme.glowSm} backdrop-blur-sm`}>
-                    <header className="flex items-center gap-3">
-                      <div className={`rounded-xl ${currentTheme.bgSofter} p-3 ${currentTheme.glowSm}`}>
-                        <Receipt className={`h-6 w-6 ${currentTheme.text}`} aria-hidden="true" />
+                    <form onSubmit={handleAddExpense} className={`space-y-2.5 rounded-xl border border-gray-800/50 bg-gradient-to-br from-black/60 to-gray-950/60 p-2.5 shadow-xl hover:shadow-xl transition-all duration-300 ${currentTheme.glowSm} backdrop-blur-sm`}>
+                    <header className="flex items-center gap-2">
+                      <div className={`rounded-lg ${currentTheme.bgSofter} p-2 ${currentTheme.glowSm}`}>
+                        <Receipt className={`h-4 w-4 ${currentTheme.text}`} aria-hidden="true" />
                       </div>
-                      <h3 className="text-lg sm:text-xl font-bold text-white">Add Expense</h3>
+                      <h3 className="text-sm sm:text-base font-bold text-white">Add Expense</h3>
                     </header>
-                    <div className="space-y-2">
-                      <label htmlFor="expense-amount" className="text-lg font-semibold text-gray-300 block">
+                    <div className="space-y-1.5">
+                      <label htmlFor="expense-amount" className="text-sm font-semibold text-gray-300 block">
                         Amount (NEAR)
                       </label>
                       <Input
@@ -1437,13 +1437,13 @@ export default function HomePage() {
                         type="number"
                         min="0"
                         step="0.01"
-                        className={`bg-gray-900/50 border-gray-700 ${currentTheme.focusBorder} ${currentTheme.focusRing} text-lg h-12 transition-all duration-200 hover:border-gray-600`}
+                        className={`bg-gray-900/50 border-gray-700 ${currentTheme.focusBorder} ${currentTheme.focusRing} text-sm h-9 transition-all duration-200 hover:border-gray-600`}
                         required
                         aria-required="true"
                       />
                     </div>
-                    <div className="space-y-2">
-                      <label htmlFor="expense-description" className="text-lg font-semibold text-gray-300 block">
+                    <div className="space-y-1.5">
+                      <label htmlFor="expense-description" className="text-sm font-semibold text-gray-300 block">
                         Description
                       </label>
                       <Input
@@ -1451,17 +1451,17 @@ export default function HomePage() {
                         value={expenseMemo}
                         onChange={(event: ChangeEvent<HTMLInputElement>) => setExpenseMemo(event.target.value)}
                         placeholder="Dinner at restaurant"
-                        className={`bg-gray-900/50 border-gray-700 ${currentTheme.focusBorder} ${currentTheme.focusRing} text-lg h-12 transition-all duration-200 hover:border-gray-600`}
+                        className={`bg-gray-900/50 border-gray-700 ${currentTheme.focusBorder} ${currentTheme.focusRing} text-sm h-9 transition-all duration-200 hover:border-gray-600`}
                       />
                     </div>
-                    <div className="space-y-2">
-                      <p className="text-lg font-semibold text-gray-300 flex items-center gap-2">
-                        <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
+                    <div className="space-y-1.5">
+                      <p className="text-sm font-semibold text-gray-300 flex items-center gap-1.5">
+                        <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
                           <path d="M9 6a3 3 0 11-6 0 3 3 0 016 0zM17 6a3 3 0 11-6 0 3 3 0 016 0zM12.93 17c.046-.327.07-.66.07-1a6.97 6.97 0 00-1.5-4.33A5 5 0 0119 16v1h-6.07zM6 11a5 5 0 015 5v1H1v-1a5 5 0 015-5z" />
                         </svg>
-                        Split between ({Object.values(selectedParticipants).filter(Boolean).length} selected)
+                        Split ({Object.values(selectedParticipants).filter(Boolean).length} selected)
                       </p>
-                      <div className="flex flex-wrap gap-2" role="group" aria-label="Select expense participants">
+                      <div className="flex flex-wrap gap-1.5" role="group" aria-label="Select expense participants">
                         {selectedCircle.members.map((member) => (
                           <button
                             key={member}
@@ -1472,7 +1472,7 @@ export default function HomePage() {
                                 [member]: !prev[member]
                               }))
                             }
-                            className={`rounded-lg px-3 py-2 text-lg font-medium transition-all duration-200 break-all text-left min-h-[44px] flex items-center gap-2 ${
+                            className={`rounded-lg px-2.5 py-1.5 text-xs font-medium transition-all duration-200 break-all text-left flex items-center gap-1.5 ${
                               selectedParticipants[member]
                                 ? `${currentTheme.bg} text-black shadow-lg ${currentTheme.glow} hover:scale-105`
                                 : 'bg-gray-800 text-gray-300 hover:bg-gray-700 hover:scale-105'
@@ -1481,7 +1481,7 @@ export default function HomePage() {
                             aria-label={`${selectedParticipants[member] ? 'Remove' : 'Add'} ${member}`}
                           >
                             {selectedParticipants[member] && (
-                              <svg className="w-4 h-4 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
+                              <svg className="w-3 h-3 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
                                 <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
                               </svg>
                             )}
@@ -1494,7 +1494,7 @@ export default function HomePage() {
                       type="submit"
                       loading={addExpenseMutation.loading}
                       disabled={participantIds.length === 0 || !expenseAmount}
-                      className={`w-full ${currentTheme.bg} ${currentTheme.hover} text-black font-bold text-lg sm:text-lg h-10 sm:h-11 ${currentTheme.glow} hover:scale-[1.02] transition-all duration-200 shadow-lg`}
+                      className={`w-full ${currentTheme.bg} ${currentTheme.hover} text-black font-bold text-sm h-9 ${currentTheme.glow} hover:scale-[1.02] transition-all duration-200 shadow-lg`}
                       aria-label="Record expense"
                     >
                       Record Expense
@@ -1506,20 +1506,20 @@ export default function HomePage() {
                 {/* SETTLEMENTS TAB: Settle Payment Form */}
                 {activeTab === 'settlements' && (
                   <div className="mt-2">
-                    <form onSubmit={handlePayNative} className={`space-y-3 rounded-xl border border-gray-800/50 bg-gradient-to-br from-black/60 to-gray-950/60 p-3 sm:p-4 shadow-xl hover:shadow-xl transition-all duration-300 ${currentTheme.glowSm} backdrop-blur-sm`}>
-                    <header className="flex items-center gap-3">
-                      <div className={`rounded-xl ${currentTheme.bgSofter} p-3 ${currentTheme.glowSm}`}>
-                        <DollarSign className={`h-6 w-6 ${currentTheme.text}`} aria-hidden="true" />
+                    <form onSubmit={handlePayNative} className={`space-y-2.5 rounded-xl border border-gray-800/50 bg-gradient-to-br from-black/60 to-gray-950/60 p-2.5 shadow-xl hover:shadow-xl transition-all duration-300 ${currentTheme.glowSm} backdrop-blur-sm`}>
+                    <header className="flex items-center gap-2">
+                      <div className={`rounded-lg ${currentTheme.bgSofter} p-2 ${currentTheme.glowSm}`}>
+                        <DollarSign className={`h-4 w-4 ${currentTheme.text}`} aria-hidden="true" />
                       </div>
-                      <h3 className="text-lg sm:text-xl font-bold text-white">Settle Payment</h3>
+                      <h3 className="text-sm sm:text-base font-bold text-white">Settle Payment</h3>
                     </header>
-                    <div className="space-y-2">
-                      <label htmlFor="settlement-recipient" className="text-lg font-semibold text-gray-300 block">
+                    <div className="space-y-1.5">
+                      <label htmlFor="settlement-recipient" className="text-sm font-semibold text-gray-300 block">
                         Pay to
                       </label>
                       <select
                         id="settlement-recipient"
-                        className={`w-full rounded-lg border border-gray-700 bg-gray-900/50 px-4 py-3 text-lg text-gray-100 ${currentTheme.focusBorder} ${currentTheme.focusRing} h-12 transition-all duration-200 hover:border-gray-600`}
+                        className={`w-full rounded-lg border border-gray-700 bg-gray-900/50 px-3 py-2 text-sm text-gray-100 ${currentTheme.focusBorder} ${currentTheme.focusRing} h-9 transition-all duration-200 hover:border-gray-600`}
                         value={settlementRecipient}
                         onChange={(event: ChangeEvent<HTMLSelectElement>) =>
                           setSettlementRecipient(event.target.value)
@@ -1536,8 +1536,8 @@ export default function HomePage() {
                           ))}
                       </select>
                     </div>
-                    <div className="space-y-2">
-                      <label htmlFor="settlement-amount" className="text-lg font-semibold text-gray-300 block">
+                    <div className="space-y-1.5">
+                      <label htmlFor="settlement-amount" className="text-sm font-semibold text-gray-300 block">
                         Amount (NEAR)
                       </label>
                       <Input
@@ -1548,7 +1548,7 @@ export default function HomePage() {
                         type="number"
                         min="0"
                         step="0.01"
-                        className={`bg-gray-900/50 border-gray-700 ${currentTheme.focusBorder} ${currentTheme.focusRing} text-lg h-12 transition-all duration-200 hover:border-gray-600`}
+                        className={`bg-gray-900/50 border-gray-700 ${currentTheme.focusBorder} ${currentTheme.focusRing} text-sm h-9 transition-all duration-200 hover:border-gray-600`}
                         required
                         aria-required="true"
                       />
@@ -1557,7 +1557,7 @@ export default function HomePage() {
                       type="submit"
                       loading={payNativeMutation.loading}
                       disabled={!settlementRecipient || !settlementAmount}
-                      className={`w-full ${currentTheme.bg} ${currentTheme.hover} text-black font-bold text-lg sm:text-lg h-10 sm:h-11 ${currentTheme.glow} hover:scale-[1.02] transition-all duration-200 shadow-lg`}
+                      className={`w-full ${currentTheme.bg} ${currentTheme.hover} text-black font-bold text-sm h-9 ${currentTheme.glow} hover:scale-[1.02] transition-all duration-200 shadow-lg`}
                       aria-label="Send payment"
                     >
                       Send Payment
@@ -1569,25 +1569,25 @@ export default function HomePage() {
 
               {/* SETTLEMENTS TAB ONLY: Ledger Confirmation Section */}
               {activeTab === 'settlements' && (
-              <article className={`rounded-xl border ${currentTheme.border700} bg-gradient-to-br ${currentTheme.from950} to-gray-950 p-3 sm:p-4 shadow-xl hover:shadow-xl transition-all duration-300 backdrop-blur-sm`}>
-                <header className="flex items-start gap-4 mb-6">
-                  <div className={`rounded-xl ${currentTheme.bgSofter} p-3 flex-shrink-0 ${currentTheme.glow}`}>
-                    <svg className={`h-6 w-6 ${currentTheme.text}`} fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+              <article className={`rounded-xl border ${currentTheme.border700} bg-gradient-to-br ${currentTheme.from950} to-gray-950 p-2.5 shadow-xl hover:shadow-xl transition-all duration-300 backdrop-blur-sm`}>
+                <header className="flex items-start gap-2.5 mb-3">
+                  <div className={`rounded-lg ${currentTheme.bgSofter} p-2 flex-shrink-0 ${currentTheme.glow}`}>
+                    <svg className={`h-4 w-4 ${currentTheme.text}`} fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                     </svg>
                   </div>
                   <div className="flex-1">
-                    <h3 className="text-lg sm:text-xl font-bold text-white">Confirm Expenses</h3>
-                    <p className="mt-2 text-lg sm:text-base text-gray-400 leading-relaxed">
-                      All members must confirm the ledger before settlement. Once everyone confirms, payments will be suggested.
+                    <h3 className="text-sm sm:text-base font-bold text-white">Confirm Expenses</h3>
+                    <p className="mt-1 text-xs text-gray-400">
+                      All members must confirm before settlement
                     </p>
                   </div>
                 </header>
                 
                 <div>
                   {isFullyConfirmed.data ? (
-                    <div className={`rounded-xl border-2 ${currentTheme.border} ${currentTheme.bgSoft} p-5 flex items-start gap-3 ${currentTheme.glow}`}>
-                      <svg className={`w-6 h-6 ${currentTheme.text} flex-shrink-0 mt-0.5`} fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
+                    <div className={`rounded-lg border-2 ${currentTheme.border} ${currentTheme.bgSoft} p-3 flex items-start gap-2 ${currentTheme.glow}`}>
+                      <svg className={`w-4 h-4 ${currentTheme.text} flex-shrink-0 mt-0.5`} fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
                         <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
                       </svg>
                       <p className={`text-lg sm:text-lg font-semibold ${currentTheme.text300}`}>
@@ -1786,45 +1786,45 @@ export default function HomePage() {
 
               {/* SETTLEMENTS TAB ONLY: Balances & Settlement Suggestions */}
               {activeTab === 'settlements' && (
-              <section className={`grid gap-3 lg:grid-cols-2`} aria-label="Balances and settlements">
-                <article className={`rounded-xl border border-gray-800/50 bg-gradient-to-br from-gray-900 to-gray-950 p-3 sm:p-4 shadow-xl hover:shadow-xl transition-all duration-300 ${currentTheme.glowSm} backdrop-blur-sm`}>
-                  <header className="flex items-center gap-3 mb-2">
-                    <div className={`rounded-xl ${currentTheme.bgSofter} p-3 ${currentTheme.glowSm}`}>
-                      <TrendingUp className={`h-6 w-6 ${currentTheme.text}`} aria-hidden="true" />
+              <section className={`grid gap-2.5 lg:grid-cols-2`} aria-label="Balances and settlements">
+                <article className={`rounded-xl border border-gray-800/50 bg-gradient-to-br from-gray-900 to-gray-950 p-2.5 shadow-xl hover:shadow-xl transition-all duration-300 ${currentTheme.glowSm} backdrop-blur-sm`}>
+                  <header className="flex items-center gap-2 mb-2">
+                    <div className={`rounded-lg ${currentTheme.bgSofter} p-2 ${currentTheme.glowSm}`}>
+                      <TrendingUp className={`h-4 w-4 ${currentTheme.text}`} aria-hidden="true" />
                     </div>
                     <div>
-                      <h3 className="text-lg sm:text-xl font-bold text-white">Balances</h3>
-                      <p className="text-lg text-gray-400 mt-0.5">
+                      <h3 className="text-sm sm:text-base font-bold text-white">Balances</h3>
+                      <p className="text-xs text-gray-400">
                         {circleBalances.data?.length || 0} member{(circleBalances.data?.length || 0) === 1 ? '' : 's'}
                       </p>
                     </div>
                   </header>
-                  <p className="text-lg text-gray-400 mb-2 flex items-center gap-2">
-                    <svg className="w-4 h-4 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
+                  <p className="text-xs text-gray-400 mb-2 flex items-center gap-1.5">
+                    <svg className="w-3 h-3 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
                       <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
                     </svg>
-                    Positive = owed money, Negative = owes money
+                    Positive = owed, Negative = owes
                   </p>
-                  <ul className="space-y-2.5" role="list">
+                  <ul className="space-y-1.5" role="list">
                     {circleBalances.data?.map((balance: BalanceView) => (
                       <li
                         key={balance.account_id}
-                        className="flex items-center justify-between gap-4 rounded-xl bg-gradient-to-r from-black/50 to-gray-900/50 px-4 py-3 border border-gray-800/50 hover:border-gray-700 transition-all duration-200 hover:shadow-md backdrop-blur-sm"
+                        className="flex items-center justify-between gap-3 rounded-lg bg-gradient-to-r from-black/50 to-gray-900/50 px-3 py-2 border border-gray-800/50 hover:border-gray-700 transition-all duration-200 hover:shadow-md backdrop-blur-sm"
                       >
-                        <div className="flex items-center gap-3 flex-1 min-w-0">
-                          <div className={`w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 ${
+                        <div className="flex items-center gap-2 flex-1 min-w-0">
+                          <div className={`w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 ${
                             BigInt(balance.net) >= 0n ? currentTheme.bgSoft : 'bg-rose-500/20'
                           }`}>
-                            <svg className={`w-5 h-5 ${BigInt(balance.net) >= 0n ? currentTheme.text : 'text-rose-400'}`} fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
+                            <svg className={`w-3.5 h-3.5 ${BigInt(balance.net) >= 0n ? currentTheme.text : 'text-rose-400'}`} fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
                               <path fillRule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clipRule="evenodd" />
                             </svg>
                           </div>
-                          <span className={`text-gray-200 font-medium break-all ${balance.account_id === near.accountId ? 'font-semibold text-white' : ''}`}>
+                          <span className={`text-sm text-gray-200 font-medium truncate ${balance.account_id === near.accountId ? 'font-semibold text-white' : ''}`}>
                             {balance.account_id === near.accountId ? 'You' : balance.account_id}
                           </span>
                         </div>
                         <span
-                          className={`font-bold text-lg whitespace-nowrap ${
+                          className={`font-bold text-sm whitespace-nowrap ${
                             BigInt(balance.net) >= 0n ? currentTheme.text : 'text-rose-400'
                           }`}
                           aria-label={`Balance: ${BigInt(balance.net) >= 0n ? 'owed' : 'owes'} ${formatNearAmount(BigInt(balance.net).toString())} NEAR`}
@@ -1832,29 +1832,29 @@ export default function HomePage() {
                           {BigInt(balance.net) >= 0n ? '+' : ''}{formatNearAmount(BigInt(balance.net).toString())} Ⓝ
                         </span>
                       </li>
-                    )) || <p className="text-lg text-gray-500 py-4 text-center">No balances yet. Add expenses to get started.</p>}
+                    )) || <p className="text-xs text-gray-500 py-3 text-center">No balances yet</p>}
                   </ul>
                 </article>
 
-                <article className={`rounded-xl border border-gray-800/50 bg-gradient-to-br from-gray-900 to-gray-950 p-3 sm:p-4 shadow-xl hover:shadow-xl transition-all duration-300 ${currentTheme.glowSm} backdrop-blur-sm`}>
-                  <header className="flex items-center gap-3 mb-2">
-                    <div className={`rounded-xl ${currentTheme.bgSofter} p-3 ${currentTheme.glowSm}`}>
-                      <Users className={`h-6 w-6 ${currentTheme.text}`} aria-hidden="true" />
+                <article className={`rounded-xl border border-gray-800/50 bg-gradient-to-br from-gray-900 to-gray-950 p-2.5 shadow-xl hover:shadow-xl transition-all duration-300 ${currentTheme.glowSm} backdrop-blur-sm`}>
+                  <header className="flex items-center gap-2 mb-2">
+                    <div className={`rounded-lg ${currentTheme.bgSofter} p-2 ${currentTheme.glowSm}`}>
+                      <Users className={`h-4 w-4 ${currentTheme.text}`} aria-hidden="true" />
                     </div>
                     <div>
-                      <h3 className="text-lg sm:text-xl font-bold text-white">Settlement Suggestions</h3>
-                      <p className="text-lg text-gray-400 mt-0.5">
-                        {circleSuggestions.data?.length || 0} suggested transfer{(circleSuggestions.data?.length || 0) === 1 ? '' : 's'}
+                      <h3 className="text-sm sm:text-base font-bold text-white">Settlement Suggestions</h3>
+                      <p className="text-xs text-gray-400">
+                        {circleSuggestions.data?.length || 0} suggested
                       </p>
                     </div>
                   </header>
-                  <p className="text-lg text-gray-400 mb-2 flex items-center gap-2">
-                    <svg className="w-4 h-4 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
+                  <p className="text-xs text-gray-400 mb-2 flex items-center gap-1.5">
+                    <svg className="w-3 h-3 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
                       <path fillRule="evenodd" d="M6 2a1 1 0 00-1 1v1H4a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V6a2 2 0 00-2-2h-1V3a1 1 0 10-2 0v1H7V3a1 1 0 00-1-1zm0 5a1 1 0 000 2h8a1 1 0 100-2H6z" clipRule="evenodd" />
                     </svg>
-                    Minimal transfers to settle all debts
+                    Minimal transfers to settle debts
                   </p>
-                  <ul className="space-y-2" role="list">
+                  <ul className="space-y-1.5" role="list">
                     {circleSuggestions.data && circleSuggestions.data.length > 0 ? (
                       circleSuggestions.data.map((suggestion: SettlementSuggestion, idx: number) => (
                         <li
@@ -1931,23 +1931,23 @@ export default function HomePage() {
 
               {/* EXPENSES TAB ONLY: Recent Expenses */}
               {activeTab === 'expenses' && (
-              <section className={`rounded-xl border border-gray-800 bg-gradient-to-br from-gray-900 to-gray-950 p-3 sm:p-4 shadow-lg ${currentTheme.glowSm}`}>
+              <section className={`rounded-xl border border-gray-800 bg-gradient-to-br from-gray-900 to-gray-950 p-2.5 shadow-lg ${currentTheme.glowSm}`}>
                 <div className="flex items-center gap-2 mb-2">
-                  <div className={`rounded-lg ${currentTheme.bgSofter} p-2 ${currentTheme.glowSm}`}>
-                    <Receipt className={`h-5 w-5 ${currentTheme.text}`} />
+                  <div className={`rounded-lg ${currentTheme.bgSofter} p-1.5 ${currentTheme.glowSm}`}>
+                    <Receipt className={`h-4 w-4 ${currentTheme.text}`} />
                   </div>
-                  <h3 className="text-xl font-bold text-white">Recent Expenses</h3>
+                  <h3 className="text-sm sm:text-base font-bold text-white">Recent Expenses</h3>
                 </div>
-                <p className="text-lg text-gray-400">All recorded expenses in this circle.</p>
-                <div className="mt-2 space-y-2 text-lg">
+                <p className="text-xs text-gray-400 mb-2">All recorded expenses in this circle</p>
+                <div className="space-y-1.5 text-sm">
                   {circleExpenses.isLoading ? (
                     <ListSkeleton count={3} />
                   ) : circleExpenses.data && circleExpenses.data.length > 0 ? (
                     circleExpenses.data.map((expense: Expense) => (
-                      <article key={expense.id} className="rounded-xl border border-gray-800 bg-black/40 p-4">
-                        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                          <h4 className="font-semibold text-white">{expense.memo || 'Untitled expense'}</h4>
-                          <div className="flex items-center gap-2 text-lg">
+                      <article key={expense.id} className="rounded-lg border border-gray-800 bg-black/40 p-2.5">
+                        <div className="flex flex-col gap-1.5 sm:flex-row sm:items-center sm:justify-between">
+                          <h4 className="font-semibold text-white text-sm">{expense.memo || 'Untitled expense'}</h4>
+                          <div className="flex items-center gap-1.5 text-xs">
                             <span className={`font-bold ${currentTheme.text}`}>
                               {formatNearAmount(expense.amount_yocto)} Ⓝ
                             </span>
@@ -1955,20 +1955,20 @@ export default function HomePage() {
                             <span className="text-gray-400">{formatTimestamp(expense.ts_ms)}</span>
                           </div>
                         </div>
-                        <p className="text-lg text-gray-400 mt-1 break-all">Paid by <span className="text-gray-300">{expense.payer}</span></p>
-                        <div className="mt-2 flex flex-wrap gap-2">
+                        <p className="text-xs text-gray-400 mt-1 truncate">Paid by <span className="text-gray-300">{expense.payer}</span></p>
+                        <div className="mt-1.5 flex flex-wrap gap-1">
                           {expense.participants.map((participant) => (
-                            <div key={participant.account_id} className="flex items-center gap-2 rounded-lg bg-gray-900/60 px-3 py-1.5 text-lg border border-gray-800">
-                              <span className="text-gray-300 break-all">{participant.account_id}</span>
+                            <div key={participant.account_id} className="flex items-center gap-1.5 rounded-md bg-gray-900/60 px-2 py-1 text-xs border border-gray-800">
+                              <span className="text-gray-300 truncate max-w-[120px]">{participant.account_id}</span>
                               <span className="text-gray-500">·</span>
-                              <span className={`${currentTheme.text} font-medium whitespace-nowrap`}>{(participant.weight_bps / 100).toFixed(1)}%</span>
+                              <span className={`${currentTheme.text} font-medium whitespace-nowrap`}>{(participant.weight_bps / 100).toFixed(0)}%</span>
                             </div>
                           ))}
                         </div>
                       </article>
                     ))
                   ) : (
-                    <div className="py-4 text-center">
+                    <div className="py-3 text-center">
                       <EmptyState type="expenses" />
                     </div>
                   )}
@@ -1977,16 +1977,16 @@ export default function HomePage() {
               )}
             </div>
           ) : (
-            <div className="rounded-xl border border-gray-800 bg-gradient-to-br from-gray-900 to-gray-950 p-6 sm:p-8 text-center shadow-lg">
+            <div className="rounded-xl border border-gray-800 bg-gradient-to-br from-gray-900 to-gray-950 p-4 sm:p-5 text-center shadow-lg">
               <div className="mx-auto max-w-md space-y-2">
-                <div className={`mx-auto w-16 h-16 rounded-full ${currentTheme.bgSoft} flex items-center justify-center`}>
-                  <svg className={`h-8 w-8 ${currentTheme.text}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <div className={`mx-auto w-12 h-12 rounded-full ${currentTheme.bgSoft} flex items-center justify-center`}>
+                  <svg className={`h-6 w-6 ${currentTheme.text}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
                   </svg>
                 </div>
-                <h3 className="text-lg font-semibold text-white">No Circle Selected</h3>
-                <p className="text-lg text-gray-400">
-                  Select a circle from the sidebar or create a new one to start tracking expenses.
+                <h3 className="text-sm font-semibold text-white">No Circle Selected</h3>
+                <p className="text-xs text-gray-400">
+                  Select a circle from the sidebar or create a new one
                 </p>
               </div>
             </div>
