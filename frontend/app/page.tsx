@@ -7,12 +7,23 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Logo } from '@/components/ui/logo';
 import { EmptyState } from '@/components/ui/empty-state';
+import { CardSkeleton, ListSkeleton, FormSkeleton, CircleCardSkeleton } from '@/components/ui/skeleton';
+import { TransactionConfirmation } from '@/components/ui/confirmation-modal';
 import { useContractView } from '@/lib/hooks/use-contract-view';
 import { useContractCall } from '@/lib/hooks/use-contract-call';
 import { useLocalStorage } from '@/lib/hooks/use-local-storage';
 import { formatNearAmount, formatTimestamp, parseNearAmount } from '@/lib/utils/format';
 import { buildEqualShares, uniq } from '@/lib/utils/shares';
 import { getNearConfig } from '@/lib/near/config';
+import { 
+  validateAmount, 
+  validateCircleName, 
+  validatePassword, 
+  validateMemo, 
+  validateCircleId,
+  validateRequired,
+  sanitizeInput 
+} from '@/lib/utils/validation';
 import type {
   BalanceView,
   Circle,
@@ -155,6 +166,21 @@ export default function HomePage() {
   const [selectedParticipants, setSelectedParticipants] = useState<Record<string, boolean>>({});
   const [settlementAmount, setSettlementAmount] = useState('');
   const [settlementRecipient, setSettlementRecipient] = useState('');
+
+  // Validation errors
+  const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
+
+  // Confirmation modal state
+  const [confirmationModal, setConfirmationModal] = useState<{
+    isOpen: boolean;
+    type: string;
+    onConfirm: () => void | Promise<void>;
+    details?: Array<{ label: string; value: string }>;
+  }>({
+    isOpen: false,
+    type: '',
+    onConfirm: () => {}
+  });
 
   const registerMutation = useContractCall();
   const createCircleMutation = useContractCall();
@@ -521,30 +547,57 @@ export default function HomePage() {
   const handleCreateCircle = useCallback(
     async (event: FormEvent<HTMLFormElement>) => {
       event.preventDefault();
-      if (!createCircleName.trim()) {
-        setNotification({ type: 'error', text: 'Circle name cannot be empty.' });
+      
+      // Clear previous errors
+      setValidationErrors({});
+      
+      // Validate inputs
+      const nameValidation = validateCircleName(createCircleName);
+      const passwordValidation = usePassword ? validatePassword(createCirclePassword) : { isValid: true };
+      
+      const errors: Record<string, string> = {};
+      if (!nameValidation.isValid) errors.circleName = nameValidation.error!;
+      if (!passwordValidation.isValid) errors.circlePassword = passwordValidation.error!;
+      
+      if (Object.keys(errors).length > 0) {
+        setValidationErrors(errors);
+        setNotification({ type: 'error', text: Object.values(errors)[0] });
         return;
       }
-      if (usePassword && !createCirclePassword.trim()) {
-        setNotification({ type: 'error', text: 'Password cannot be empty when protection is enabled.' });
-        return;
-      }
-      try {
-        const args: { name: string; invite_code?: string } = { 
-          name: createCircleName.trim() 
-        };
-        if (usePassword && createCirclePassword.trim()) {
-          args.invite_code = createCirclePassword.trim();
+
+      // Sanitize inputs
+      const sanitizedName = sanitizeInput(createCircleName.trim());
+      const sanitizedPassword = sanitizeInput(createCirclePassword.trim());
+
+      // Show confirmation modal
+      setConfirmationModal({
+        isOpen: true,
+        type: 'create circle',
+        details: [
+          { label: 'Circle Name', value: sanitizedName },
+          { label: 'Protected', value: usePassword ? 'Yes (password required)' : 'No (public)' }
+        ],
+        onConfirm: async () => {
+          try {
+            const args: { name: string; invite_code?: string } = { 
+              name: sanitizedName 
+            };
+            if (usePassword && sanitizedPassword) {
+              args.invite_code = sanitizedPassword;
+            }
+            await createCircleMutation.execute('create_circle', args);
+            setCreateCircleName('');
+            setCreateCirclePassword('');
+            setUsePassword(false);
+            await memberCircles.mutate();
+            setNotification({ type: 'success', text: 'Circle created successfully!' });
+            setConfirmationModal({ isOpen: false, type: '', onConfirm: () => {} });
+          } catch (error) {
+            setNotification({ type: 'error', text: (error as Error).message });
+            throw error;
+          }
         }
-        await createCircleMutation.execute('create_circle', args);
-        setCreateCircleName('');
-        setCreateCirclePassword('');
-        setUsePassword(false);
-        await memberCircles.mutate();
-        setNotification({ type: 'success', text: 'Circle created!' });
-      } catch (error) {
-        setNotification({ type: 'error', text: (error as Error).message });
-      }
+      });
     },
     [createCircleName, createCirclePassword, usePassword, createCircleMutation, memberCircles]
   );
@@ -552,27 +605,50 @@ export default function HomePage() {
   const handleJoinCircle = useCallback(
     async (event: FormEvent<HTMLFormElement>) => {
       event.preventDefault();
-      const trimmed = joinCircleId.trim();
-      if (!trimmed) {
-        setNotification({ type: 'error', text: 'Enter a circle ID to join.' });
+      
+      // Clear previous errors
+      setValidationErrors({});
+      
+      // Validate inputs
+      const idValidation = validateCircleId(joinCircleId);
+      
+      if (!idValidation.isValid) {
+        setValidationErrors({ circleId: idValidation.error! });
+        setNotification({ type: 'error', text: idValidation.error! });
         return;
       }
-      try {
-        const args: { circle_id: string; invite_code?: string } = { 
-          circle_id: trimmed 
-        };
-        if (joinCirclePassword.trim()) {
-          args.invite_code = joinCirclePassword.trim();
+
+      const trimmed = sanitizeInput(joinCircleId.trim());
+      const sanitizedPassword = sanitizeInput(joinCirclePassword.trim());
+
+      // Show confirmation modal
+      setConfirmationModal({
+        isOpen: true,
+        type: 'join circle',
+        details: [
+          { label: 'Circle ID', value: trimmed }
+        ],
+        onConfirm: async () => {
+          try {
+            const args: { circle_id: string; invite_code?: string } = { 
+              circle_id: trimmed 
+            };
+            if (sanitizedPassword) {
+              args.invite_code = sanitizedPassword;
+            }
+            await joinCircleMutation.execute('join_circle', args);
+            setJoinCircleId('');
+            setJoinCirclePassword('');
+            setTrackedCircleIds((prev: string[]) => uniq([...prev, trimmed]));
+            await memberCircles.mutate();
+            setNotification({ type: 'success', text: 'Joined circle successfully!' });
+            setConfirmationModal({ isOpen: false, type: '', onConfirm: () => {} });
+          } catch (error) {
+            setNotification({ type: 'error', text: (error as Error).message });
+            throw error;
+          }
         }
-        await joinCircleMutation.execute('join_circle', args);
-        setJoinCircleId('');
-        setJoinCirclePassword('');
-  setTrackedCircleIds((prev: string[]) => uniq([...prev, trimmed]));
-        await memberCircles.mutate();
-        setNotification({ type: 'success', text: 'Joined circle successfully.' });
-      } catch (error) {
-        setNotification({ type: 'error', text: (error as Error).message });
-      }
+      });
     },
     [joinCircleId, joinCirclePassword, joinCircleMutation, memberCircles, setTrackedCircleIds]
   );
@@ -580,29 +656,62 @@ export default function HomePage() {
   const handleAddExpense = useCallback(
     async (event: FormEvent<HTMLFormElement>) => {
       event.preventDefault();
+      
       if (!selectedCircleId || !selectedCircle) {
         return;
       }
-      if (!expenseAmount || participantIds.length === 0) {
-        setNotification({ type: 'error', text: 'Amount and at least one participant are required.' });
+
+      // Clear previous errors
+      setValidationErrors({});
+
+      // Validate inputs
+      const amountValidation = validateAmount(expenseAmount);
+      const memoValidation = validateMemo(expenseMemo);
+
+      const errors: Record<string, string> = {};
+      if (!amountValidation.isValid) errors.expenseAmount = amountValidation.error!;
+      if (!memoValidation.isValid) errors.expenseMemo = memoValidation.error!;
+      if (participantIds.length === 0) errors.participants = 'Select at least one participant';
+
+      if (Object.keys(errors).length > 0) {
+        setValidationErrors(errors);
+        setNotification({ type: 'error', text: Object.values(errors)[0] });
         return;
       }
+
+      const sanitizedMemo = sanitizeInput(expenseMemo.trim());
       const amountYocto = parseNearAmount(expenseAmount);
-      try {
-        const shares = buildEqualShares(participantIds);
-        await addExpenseMutation.execute('add_expense', {
-          circle_id: selectedCircleId,
-          amount_yocto: amountYocto,
-          shares,
-          memo: expenseMemo.trim()
-        });
-        setExpenseAmount('');
-        setExpenseMemo('');
-        await Promise.all([circleExpenses.mutate(), circleBalances.mutate(), circleSuggestions.mutate()]);
-        setNotification({ type: 'success', text: 'Expense recorded.' });
-      } catch (error) {
-        setNotification({ type: 'error', text: (error as Error).message });
-      }
+
+      // Show confirmation modal
+      setConfirmationModal({
+        isOpen: true,
+        type: 'add expense',
+        details: [
+          { label: 'Amount', value: `${expenseAmount} Ⓝ` },
+          { label: 'Description', value: sanitizedMemo },
+          { label: 'Split between', value: `${participantIds.length} member(s)` },
+          { label: 'Each pays', value: `${(parseFloat(expenseAmount) / participantIds.length).toFixed(4)} Ⓝ` }
+        ],
+        onConfirm: async () => {
+          try {
+            const shares = buildEqualShares(participantIds);
+            await addExpenseMutation.execute('add_expense', {
+              circle_id: selectedCircleId,
+              amount_yocto: amountYocto,
+              shares,
+              memo: sanitizedMemo
+            });
+            setExpenseAmount('');
+            setExpenseMemo('');
+            await Promise.all([circleExpenses.mutate(), circleBalances.mutate(), circleSuggestions.mutate()]);
+            setNotification({ type: 'success', text: 'Expense recorded successfully!' });
+            setConfirmationModal({ isOpen: false, type: '', onConfirm: () => {} });
+          } catch (error) {
+            setNotification({ type: 'error', text: (error as Error).message });
+            throw error;
+          }
+        }
+      });
     },
     [selectedCircleId, selectedCircle, expenseAmount, participantIds, expenseMemo, addExpenseMutation, circleExpenses, circleBalances, circleSuggestions]
   );
@@ -610,29 +719,61 @@ export default function HomePage() {
   const handlePayNative = useCallback(
     async (event: FormEvent<HTMLFormElement>) => {
       event.preventDefault();
-      if (!selectedCircleId || !settlementRecipient || !settlementAmount) {
-        setNotification({ type: 'error', text: 'Recipient and amount are required for settlements.' });
+      
+      if (!selectedCircleId) {
         return;
       }
-      try {
-        const deposit = parseNearAmount(settlementAmount);
-        await payNativeMutation.execute(
-          'pay_native',
-          {
-            circle_id: selectedCircleId,
-            to: settlementRecipient
-          },
-          {
-            deposit,
-            gas: GAS_150_TGAS
-          }
-        );
-        setSettlementAmount('');
-        setNotification({ type: 'success', text: 'Native payment submitted.' });
-        await Promise.all([circleBalances.mutate(), circleSuggestions.mutate()]);
-      } catch (error) {
-        setNotification({ type: 'error', text: (error as Error).message });
+
+      // Clear previous errors
+      setValidationErrors({});
+
+      // Validate inputs
+      const amountValidation = validateAmount(settlementAmount);
+      const recipientValidation = validateRequired(settlementRecipient, 'Recipient');
+
+      const errors: Record<string, string> = {};
+      if (!amountValidation.isValid) errors.settlementAmount = amountValidation.error!;
+      if (!recipientValidation.isValid) errors.settlementRecipient = recipientValidation.error!;
+
+      if (Object.keys(errors).length > 0) {
+        setValidationErrors(errors);
+        setNotification({ type: 'error', text: Object.values(errors)[0] });
+        return;
       }
+
+      const deposit = parseNearAmount(settlementAmount);
+
+      // Show confirmation modal
+      setConfirmationModal({
+        isOpen: true,
+        type: 'settle payment',
+        details: [
+          { label: 'Amount', value: `${settlementAmount} Ⓝ` },
+          { label: 'Recipient', value: settlementRecipient }
+        ],
+        onConfirm: async () => {
+          try {
+            await payNativeMutation.execute(
+              'pay_native',
+              {
+                circle_id: selectedCircleId,
+                to: settlementRecipient
+              },
+              {
+                deposit,
+                gas: GAS_150_TGAS
+              }
+            );
+            setSettlementAmount('');
+            setNotification({ type: 'success', text: 'Payment submitted successfully!' });
+            await Promise.all([circleBalances.mutate(), circleSuggestions.mutate()]);
+            setConfirmationModal({ isOpen: false, type: '', onConfirm: () => {} });
+          } catch (error) {
+            setNotification({ type: 'error', text: (error as Error).message });
+            throw error;
+          }
+        }
+      });
     },
     [selectedCircleId, settlementRecipient, settlementAmount, payNativeMutation, circleBalances, circleSuggestions]
   );
@@ -1140,7 +1281,14 @@ export default function HomePage() {
               </p>
             </header>
             <ul className="space-y-2" role="list">
-              {trackedCircleIds.length === 0 ? (
+              {memberCircles.isLoading ? (
+                <li className="mt-2">
+                  <CircleCardSkeleton />
+                  <div className="mt-2">
+                    <CircleCardSkeleton />
+                  </div>
+                </li>
+              ) : trackedCircleIds.length === 0 ? (
                 <li className="mt-2">
                   <EmptyState type="circles" />
                 </li>
@@ -1792,7 +1940,9 @@ export default function HomePage() {
                 </div>
                 <p className="text-lg text-gray-400">All recorded expenses in this circle.</p>
                 <div className="mt-2 space-y-2 text-lg">
-                  {circleExpenses.data && circleExpenses.data.length > 0 ? (
+                  {circleExpenses.isLoading ? (
+                    <ListSkeleton count={3} />
+                  ) : circleExpenses.data && circleExpenses.data.length > 0 ? (
                     circleExpenses.data.map((expense: Expense) => (
                       <article key={expense.id} className="rounded-xl border border-gray-800 bg-black/40 p-4">
                         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -1845,6 +1995,15 @@ export default function HomePage() {
       </section>
         </>
       )}
+
+      {/* Transaction Confirmation Modal */}
+      <TransactionConfirmation
+        isOpen={confirmationModal.isOpen}
+        onClose={() => setConfirmationModal({ isOpen: false, type: '', onConfirm: () => {} })}
+        onConfirm={confirmationModal.onConfirm}
+        transactionType={confirmationModal.type}
+        additionalDetails={confirmationModal.details}
+      />
     </main>
   );
 }

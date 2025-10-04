@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import { RootProviders } from "@/components/providers/root-providers";
+import { ErrorBoundary } from "@/components/error-boundary";
 
 export const metadata: Metadata = {
   title: "NearSplitter",
@@ -15,7 +16,9 @@ export default function RootLayout({
   return (
     <html lang="en" className="h-full">
       <body className="min-h-screen bg-slate-950 text-slate-100 antialiased">
-        <RootProviders>{children}</RootProviders>
+        <ErrorBoundary>
+          <RootProviders>{children}</RootProviders>
+        </ErrorBoundary>
       </body>
     </html>
   );
