@@ -14,55 +14,38 @@ Quick start (use)
 Developer notes
 - Frontend: Next.js + TypeScript + Tailwind CSS (in `frontend/`).
 - Contract: Rust + near-sdk (in `contracts/near_splitter/`).
-Basic dev workflow
-1) Frontend
-
-cd frontend
-pnpm install
-pnpm dev
-2) Contract (build & optimize)
-cd contracts/near_splitter
-cargo build --target wasm32-unknown-unknown --release
-# then use wasm-opt to optimize the produced wasm before deploying
-Deployment
-- The repo is set up to deploy the frontend to GitHub Pages from `main` (see `.github/workflows/`).
-- To run your own instance: deploy the contract to NEAR testnet/mainnet, update the contract ID in `frontend/.env.local`, then build & publish the frontend.
-Contributing & License
-- PRs welcome. Open issues for bugs or feature requests.
-- MIT License (see `LICENSE`).
-Contact
-- Open an issue or join the NEAR community for help.
-
-Built on NEAR Protocol — expenses should be transparent and verifiable.
 # NearSplitter
 
-Split expenses fairly with friends, powered by NEAR blockchain.
+Try the live demo: https://jrudyray.github.io/NearSplitter/
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
-[![NEAR Protocol](https://img.shields.io/badge/NEAR-Protocol-00C08B)](https://near.org)
+NearSplitter lets groups track and settle shared expenses using a NEAR Protocol smart contract. The UI is published to GitHub Pages; the state and settlement logic live on NEAR (example contract: `nearsplitter-5134.testnet`).
 
-**Try it now:** https://jrudyray.github.io/NearSplitter/  
-**Contract:** `nearsplitter-5134.testnet`
+If you just want to use it: open the demo, connect a NEAR testnet wallet, pay the small storage fee, then create or join a circle.
 
-## Why NearSplitter?
+Build & deploy (short)
 
-Ever been on a trip where tracking who paid for what becomes a nightmare? NearSplitter solves this by putting all your shared expenses on the blockchain. No central company, no hidden fees, just transparent expense tracking that everyone can verify.
+- Frontend
 
-### What makes it different
+  cd frontend
+  pnpm install
+  pnpm dev
 
-**Fully decentralized** — Your data lives on NEAR's blockchain, not on someone's server that could disappear tomorrow.
+- Contract (build)
 
-**Group consensus** — Before any settlement happens, everyone in the group reviews and confirms the ledger. No surprises, no disputes.
+  cd contracts/near_splitter
+  cargo build --target wasm32-unknown-unknown --release
+  # optimize with wasm-opt before deploying to NEAR
 
-**Smart settlements** — Instead of everyone paying everyone else, the app calculates the minimum number of transactions needed to settle up.
+- Deploy notes
 
-**Auto-discovery** — Join a circle once, and you'll automatically see it whenever you connect your wallet. No need to manually track circle IDs.
+  * Frontend: this repo can publish to GitHub Pages from `main` (see `.github/workflows/`).
+  * Contract: deploy your optimized wasm to NEAR testnet/mainnet and update `frontend/.env.local` with your contract ID.
 
-**Actually transparent** — Every expense, every split, every confirmation is recorded on-chain and verifiable by anyone.
+License & help
 
-## Getting Started
+MIT — see `LICENSE`. Open an issue for questions.
 
-### Just want to use it?
+Built on NEAR Protocol.
 
 1. Go to https://jrudyray.github.io/NearSplitter/
 2. Connect your NEAR wallet (you'll need a testnet account — they're free)
