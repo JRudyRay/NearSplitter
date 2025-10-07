@@ -1,4 +1,40 @@
 # NearSplitter
+Split shared expenses with friends using a NEAR Protocol smart contract.
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE) [![NEAR](https://img.shields.io/badge/NEAR-Protocol-00C08B)](https://near.org)
+Live demo: https://jrudyray.github.io/NearSplitter/  
+Contract (example): `nearsplitter-5134.testnet`
+What it does
+- Track shared expenses on-chain for transparency and tamper-resistance.
+- Let groups ("circles") add expenses, confirm them, and compute minimal settlements.
+- Built so anyone with a NEAR wallet can join and verify the ledger.
+Quick start (use)
+1. Open the demo: https://jrudyray.github.io/NearSplitter/
+2. Connect your NEAR testnet wallet and pay the small storage fee.
+3. Create or join a circle and start adding expenses.
+Developer notes
+- Frontend: Next.js + TypeScript + Tailwind CSS (in `frontend/`).
+- Contract: Rust + near-sdk (in `contracts/near_splitter/`).
+Basic dev workflow
+1) Frontend
+
+cd frontend
+pnpm install
+pnpm dev
+2) Contract (build & optimize)
+cd contracts/near_splitter
+cargo build --target wasm32-unknown-unknown --release
+# then use wasm-opt to optimize the produced wasm before deploying
+Deployment
+- The repo is set up to deploy the frontend to GitHub Pages from `main` (see `.github/workflows/`).
+- To run your own instance: deploy the contract to NEAR testnet/mainnet, update the contract ID in `frontend/.env.local`, then build & publish the frontend.
+Contributing & License
+- PRs welcome. Open issues for bugs or feature requests.
+- MIT License (see `LICENSE`).
+Contact
+- Open an issue or join the NEAR community for help.
+
+Built on NEAR Protocol — expenses should be transparent and verifiable.
+# NearSplitter
 
 Split expenses fairly with friends, powered by NEAR blockchain.
 
