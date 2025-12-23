@@ -58,11 +58,8 @@ jobs:
           cache: pnpm
           cache-dependency-path: frontend/pnpm-lock.yaml
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 8.15.6
-          run_install: false
+      - name: Install pnpm
+        run: npm install -g pnpm@8.15.6
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
