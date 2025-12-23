@@ -1,0 +1,74 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  contract:
+    name: Build contract (with wasm-opt)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-action@stable
+        with:
+          toolchain: 1.86.0
+          targets: wasm32-unknown-unknown
+
+      - name: Install wasm-opt (Binaryen)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y binaryen
+
+      - name: Build release
+        working-directory: contracts/near_splitter
+        run: cargo build --target wasm32-unknown-unknown --release
+
+      - name: Optimize wasm
+        working-directory: contracts/near_splitter
+        run: |
+          wasm-opt -Oz target/wasm32-unknown-unknown/release/near_splitter.wasm \
+            -o target/wasm32-unknown-unknown/release/near_splitter_optimized.wasm
+
+      - name: Upload optimized artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: near_splitter_optimized.wasm
+          path: contracts/near_splitter/target/wasm32-unknown-unknown/release/near_splitter_optimized.wasm
+          retention-days: 14
+
+  frontend:
+    name: Frontend lint, test, build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node and pnpm
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Enable corepack
+        run: corepack enable
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Test
+        run: pnpm test
+
+      - name: Build
+        run: pnpm build

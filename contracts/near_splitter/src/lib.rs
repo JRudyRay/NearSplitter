@@ -50,7 +50,7 @@ enum StorageKey {
     Confirmations,
     AutopayPreferences,
     EscrowDeposits,
-    LockedCircles,
+    PendingPayouts,
 }
 
 #[derive(BorshDeserialize, BorshSerialize, Serialize, Deserialize, Clone)]
@@ -63,8 +63,10 @@ pub struct Circle {
     pub created_ms: u64,
     /// Optional invite code hash for private circles. If set, users must provide the code to join.
     pub invite_code_hash: Option<String>,
-    /// When true, no new expenses can be added (settlement in progress)
+    /// When true, settlement is in progress (no new expenses, no joining allowed)
     pub locked: bool,
+    /// When false, no new members can join (owner-controlled)
+    pub membership_open: bool,
 }
 
 #[derive(BorshDeserialize, BorshSerialize, Serialize, Deserialize, Clone)]
@@ -140,6 +142,9 @@ pub struct NearSplitter {
     /// Tracks escrowed NEAR deposits for autopay settlements
     /// Key: "circle_id:account_id", Value: amount in yoctoNEAR
     escrow_deposits: LookupMap<String, u128>,
+    /// Tracks pending payouts for each account (pull-payment pattern)
+    /// Key: account_id, Value: amount in yoctoNEAR
+    pending_payouts: LookupMap<AccountId, u128>,
 }
 
 #[near_bindgen]
@@ -157,63 +162,27 @@ impl NearSplitter {
             confirmations: LookupMap::new(StorageKey::Confirmations),
             autopay_preferences: LookupMap::new(StorageKey::AutopayPreferences),
             escrow_deposits: LookupMap::new(StorageKey::EscrowDeposits),
+            pending_payouts: LookupMap::new(StorageKey::PendingPayouts),
         }
     }
 
-    /// Migration method to add new fields to existing contract
+    /// Reset the contract state (for development/testnet use)
+    /// This will wipe all existing data and start fresh
     #[init(ignore_state)]
     #[private]
     pub fn migrate() -> Self {
-        #[derive(BorshDeserialize, BorshSerialize)]
-        struct OldCircle {
-            id: String,
-            owner: AccountId,
-            name: String,
-            members: Vec<AccountId>,
-            created_ms: u64,
-            invite_code_hash: Option<String>,
-        }
-
-        #[derive(BorshDeserialize)]
-        struct OldNearSplitter {
-            circles: UnorderedMap<String, OldCircle>,
-            expenses: LookupMap<String, Vec<Expense>>,
-            settlements: LookupMap<String, Vec<Settlement>>,
-            circles_by_owner: LookupMap<AccountId, Vec<String>>,
-            storage_deposits: LookupMap<AccountId, u128>,
-            metadata_cache: LookupMap<AccountId, FungibleTokenMetadata>,
-            next_circle_index: u64,
-            confirmations: LookupMap<String, Vec<AccountId>>,
-        }
-
-        let old: OldNearSplitter = env::state_read().expect("Failed to read state");
-        
-        // Convert old circles to new circles with locked field
-        let mut new_circles: UnorderedMap<String, Circle> = UnorderedMap::new(StorageKey::Circles);
-        for (circle_id, old_circle) in old.circles.iter() {
-            let new_circle = Circle {
-                id: old_circle.id,
-                owner: old_circle.owner,
-                name: old_circle.name,
-                members: old_circle.members,
-                created_ms: old_circle.created_ms,
-                invite_code_hash: old_circle.invite_code_hash,
-                locked: false, // New field, default to false
-            };
-            new_circles.insert(&circle_id, &new_circle);
-        }
-        
         Self {
-            circles: new_circles,
-            expenses: old.expenses,
-            settlements: old.settlements,
-            circles_by_owner: old.circles_by_owner,
-            storage_deposits: old.storage_deposits,
-            metadata_cache: old.metadata_cache,
-            next_circle_index: old.next_circle_index,
-            confirmations: old.confirmations,
+            circles: UnorderedMap::new(StorageKey::Circles),
+            expenses: LookupMap::new(StorageKey::Expenses),
+            settlements: LookupMap::new(StorageKey::Settlements),
+            circles_by_owner: LookupMap::new(StorageKey::CirclesByOwner),
+            storage_deposits: LookupMap::new(StorageKey::StorageDeposits),
+            metadata_cache: LookupMap::new(StorageKey::MetadataCache),
+            next_circle_index: 0,
+            confirmations: LookupMap::new(StorageKey::Confirmations),
             autopay_preferences: LookupMap::new(StorageKey::AutopayPreferences),
             escrow_deposits: LookupMap::new(StorageKey::EscrowDeposits),
+            pending_payouts: LookupMap::new(StorageKey::PendingPayouts),
         }
     }
 
@@ -417,6 +386,7 @@ impl NearSplitter {
             created_ms,
             invite_code_hash,
             locked: false,
+            membership_open: true, // New circles are open by default
         };
 
         self.circles.insert(&circle_id, &circle);
@@ -446,6 +416,10 @@ impl NearSplitter {
             .get(&circle_id)
             .unwrap_or_else(|| env::panic_str("Circle not found"));
 
+        // Check if circle is accepting new members
+        require!(circle.membership_open, "Circle is not accepting new members");
+        require!(!circle.locked, "Circle is locked for settlement");
+
         // Verify invite code if circle is private
         if let Some(expected_hash) = &circle.invite_code_hash {
             let provided_code = invite_code.unwrap_or_else(|| env::panic_str("This circle requires an invite code"));
@@ -468,6 +442,98 @@ impl NearSplitter {
         self.emit_event(
             "circle_join",
             json!([{ "circle_id": circle_id, "account_id": account }]),
+        );
+    }
+
+    /// Leave a circle. Cannot leave if:
+    /// - You are the owner (must transfer ownership first or delete circle)
+    /// - Circle is locked for settlement
+    /// - You have a non-zero balance (must settle first)
+    pub fn leave_circle(&mut self, circle_id: String) {
+        let account = env::predecessor_account_id();
+        
+        let mut circle = self
+            .circles
+            .get(&circle_id)
+            .unwrap_or_else(|| env::panic_str("Circle not found"));
+
+        require!(circle.owner != account, "Owner cannot leave. Transfer ownership first.");
+        require!(!circle.locked, "Cannot leave while circle is locked for settlement");
+        
+        let member_index = circle.members.iter().position(|m| m == &account);
+        require!(member_index.is_some(), "Not a member of this circle");
+        
+        // Check if user has non-zero balance
+        let balances = self.compute_balances(circle_id.clone());
+        let user_balance = balances
+            .iter()
+            .find(|b| b.account_id == account)
+            .map(|b| b.net.0)
+            .unwrap_or(0);
+        
+        require!(user_balance == 0, "Cannot leave with non-zero balance. Settle first.");
+        
+        // Remove from members
+        circle.members.remove(member_index.unwrap());
+        self.circles.insert(&circle_id, &circle);
+        
+        // Cleanup any autopay/escrow state
+        let autopay_key = format!("{}:{}", circle_id, account);
+        self.autopay_preferences.remove(&autopay_key);
+        let escrow_key = format!("{}:{}", circle_id, account);
+        if let Some(escrowed) = self.escrow_deposits.get(&escrow_key) {
+            if escrowed > 0 {
+                self.escrow_deposits.remove(&escrow_key);
+                Promise::new(account.clone()).transfer(yocto_to_token(escrowed));
+            }
+        }
+        
+        self.emit_event(
+            "circle_leave",
+            json!([{ "circle_id": circle_id, "account_id": account }]),
+        );
+    }
+
+    /// Transfer ownership of a circle to another member.
+    /// Only the current owner can call this.
+    pub fn transfer_ownership(&mut self, circle_id: String, new_owner: AccountId) {
+        let account = env::predecessor_account_id();
+        
+        let mut circle = self
+            .circles
+            .get(&circle_id)
+            .unwrap_or_else(|| env::panic_str("Circle not found"));
+
+        require!(circle.owner == account, "Only owner can transfer ownership");
+        require!(!circle.locked, "Cannot transfer ownership during settlement");
+        require!(
+            circle.members.iter().any(|m| m == &new_owner),
+            "New owner must be a circle member"
+        );
+        
+        // Update owner tracking
+        let mut old_owner_circles = self.circles_by_owner.get(&account).unwrap_or_default();
+        old_owner_circles.retain(|id| id != &circle_id);
+        if old_owner_circles.is_empty() {
+            self.circles_by_owner.remove(&account);
+        } else {
+            self.circles_by_owner.insert(&account, &old_owner_circles);
+        }
+        
+        let mut new_owner_circles = self.circles_by_owner.get(&new_owner).unwrap_or_default();
+        new_owner_circles.push(circle_id.clone());
+        self.circles_by_owner.insert(&new_owner, &new_owner_circles);
+        
+        circle.owner = new_owner.clone();
+        self.circles.insert(&circle_id, &circle);
+        
+        self.emit_event(
+            "ownership_transferred",
+            json!({
+                "circle_id": circle_id,
+                "old_owner": account,
+                "new_owner": new_owner,
+            }),
         );
     }
 
@@ -577,16 +643,16 @@ impl NearSplitter {
         Promise::new(to).transfer(yocto_to_token(amount));
     }
 
+    /// Handle incoming FT transfers for circle settlements.
+    /// The sender transfers tokens to this contract via ft_transfer_call.
+    /// We record the settlement and forward the tokens to the intended recipient.
+    /// Message format: {"circle_id": "...", "to": "recipient.near"}
     pub fn ft_on_transfer(
         &mut self,
         sender_id: AccountId,
         amount: U128,
         msg: String,
     ) -> PromiseOrValue<String> {
-        require!(
-            env::attached_deposit().as_yoctonear() == 0,
-            "No deposit expected",
-        );
         require!(amount.0 > 0, "Amount must be positive");
         let token_contract = env::predecessor_account_id();
         let payload: TransferMessage =
@@ -608,23 +674,32 @@ impl NearSplitter {
         self.assert_registered(&sender_id);
         self.assert_registered(&payload.to);
 
-        let promise = ext_ft::ext(token_contract.clone())
+        // Record the settlement first (tokens are already received by this contract)
+        let settlement = Settlement {
+            circle_id: payload.circle_id.clone(),
+            from: sender_id.clone(),
+            to: payload.to.clone(),
+            amount,
+            token: Some(token_contract.clone()),
+            ts_ms: timestamp_ms(),
+            tx_kind: "ft_transfer".to_string(),
+        };
+        self.record_settlement(settlement);
+
+        // Forward the tokens to the recipient
+        // Note: This requires the recipient to be registered with the token contract
+        let promise = ext_ft::ext(token_contract)
             .with_attached_deposit(yocto_to_token(ONE_YOCTO))
             .with_static_gas(gas_ft_transfer())
-            .ft_transfer(payload.to.clone(), amount, None)
-            .then(
-                ext_self::ext(env::current_account_id())
-                    .with_static_gas(gas_ft_callback())
-                    .on_ft_transfer_settlement(
-                        payload.circle_id.clone(),
-                        sender_id.clone(),
-                        payload.to.clone(),
-                        amount,
-                        token_contract.clone(),
-                    ),
-            );
+            .ft_transfer(payload.to, amount, Some("NearSplitter settlement".to_string()));
 
-        PromiseOrValue::Promise(promise)
+        // Return "0" to indicate all tokens were used (none refunded to sender)
+        // The promise result doesn't affect this return value
+        PromiseOrValue::Promise(promise.then(
+            ext_self::ext(env::current_account_id())
+                .with_static_gas(gas_ft_callback())
+                .on_ft_forward_complete()
+        ))
     }
 
     pub fn ft_metadata(&self, token_id: AccountId) -> Option<FungibleTokenMetadata> {
@@ -806,31 +881,17 @@ impl NearSplitter {
         env::log_str(&format!("EVENT_JSON:{}", payload.to_string()));
     }
 
+    /// Callback after FT forward completes - just logs the result
     #[private]
-    pub fn on_ft_transfer_settlement(
-        &mut self,
-        circle_id: String,
-        sender_id: AccountId,
-        to: AccountId,
-        amount: U128,
-        token_id: AccountId,
-    ) -> String {
+    pub fn on_ft_forward_complete(&self) {
         assert_self();
         match env::promise_result(0) {
             PromiseResult::Successful(_) => {
-                let settlement = Settlement {
-                    circle_id,
-                    from: sender_id,
-                    to,
-                    amount,
-                    token: Some(token_id),
-                    ts_ms: timestamp_ms(),
-                    tx_kind: "ft_transfer".to_string(),
-                };
-                self.record_settlement(settlement);
-                "0".to_string()
+                env::log_str("FT forward completed successfully");
             }
-            _ => amount.0.to_string(),
+            _ => {
+                env::log_str("FT forward failed - tokens may be stuck in contract");
+            }
         }
     }
 }
@@ -842,26 +903,19 @@ pub trait ExtFungibleToken {
 
 #[ext_contract(ext_self)]
 pub trait ExtSelf {
-    fn on_ft_transfer_settlement(
-        &mut self,
-        circle_id: String,
-        sender_id: AccountId,
-        to: AccountId,
-        amount: U128,
-        token_id: AccountId,
-    ) -> String;
+    fn on_ft_forward_complete(&self);
 }
 
 #[near_bindgen]
 impl NearSplitter {
     /// Confirm the ledger for a circle. Once all members confirm, settlement can proceed.
     /// First confirmation locks the circle (no new expenses). 
-    /// If all members have autopay enabled, automatically distributes escrowed funds.
-    /// Confirm the ledger for a circle. 
+    /// If all members have autopay enabled, automatically distributes escrowed funds
+    /// to pending_payouts which creditors can withdraw via withdraw_payout().
     /// This automatically enables autopay and requires escrow deposit if user has debt.
     /// Once all members confirm, settlement proceeds automatically.
     #[payable]
-    pub fn confirm_ledger(&mut self, circle_id: String) -> Promise {
+    pub fn confirm_ledger(&mut self, circle_id: String) {
         let account = env::predecessor_account_id();
         let deposit = env::attached_deposit().as_yoctonear();
         self.assert_registered(&account);
@@ -896,7 +950,7 @@ impl NearSplitter {
             let debt = user_balance.unsigned_abs();
             require!(
                 deposit >= debt,
-                &format!("Must deposit {} yoctoNEAR to cover your debt of {} yoctoNEAR", deposit, debt)
+                &format!("Must deposit at least {} yoctoNEAR (attached: {})", debt, deposit)
             );
 
             // Store the deposit in escrow
@@ -914,8 +968,18 @@ impl NearSplitter {
                 }),
             );
         } else if deposit > 0 {
-            // User is creditor or even, but deposited anyway - refund
+            // User is creditor or even, but deposited anyway - refund immediately
             Promise::new(account.clone()).transfer(yocto_to_token(deposit));
+            
+            self.emit_event(
+                "deposit_refunded",
+                json!({
+                    "circle_id": circle_id.clone(),
+                    "account_id": account.clone(),
+                    "amount": U128(deposit),
+                    "message": "Creditors do not need to deposit. Funds refunded.",
+                }),
+            );
         }
 
         // Automatically enable autopay for this user
@@ -930,16 +994,18 @@ impl NearSplitter {
             }),
         );
 
-        // Lock the circle on first confirmation
+        // Lock the circle on first confirmation (also closes membership)
         if confirmations.is_empty() && !circle.locked {
             circle.locked = true;
+            circle.membership_open = false; // Close membership during settlement
             self.circles.insert(&circle_id, &circle);
             
             self.emit_event(
                 "circle_locked",
                 json!({
                     "circle_id": circle_id.clone(),
-                    "message": "Circle locked for settlement. No new expenses allowed.",
+                    "message": "Circle locked for settlement. No new expenses or members allowed.",
+                    "membership_open": false,
                 }),
             );
         }
@@ -959,20 +1025,60 @@ impl NearSplitter {
 
         // If all members confirmed, execute autopay settlements
         if confirmations.len() == circle.members.len() {
-            self.execute_autopay_settlements(circle_id)
-        } else {
-            // Not all confirmed yet, return no-op promise
-            Promise::new(env::current_account_id())
+            self.execute_autopay_settlements(circle_id);
         }
     }
 
-    /// Execute autopay settlements when all members have confirmed
-    /// Returns a Promise that must be returned from the calling public method
-    fn execute_autopay_settlements(&mut self, circle_id: String) -> Promise {
+    /// Execute autopay settlements when all members have confirmed.
+    /// All members must have autopay enabled and debtors must have escrowed enough to fully cover their debts.
+    /// If coverage is insufficient, the function reverts and leaves expenses/confirmations intact.
+    fn execute_autopay_settlements(&mut self, circle_id: String) {
         let circle = self.circles.get(&circle_id).expect("Circle not found");
         
         // Get settlement suggestions
         let suggestions = self.suggest_settlements(circle_id.clone());
+        
+        // If no settlements needed (no expenses or everyone is even), just cleanup
+        if suggestions.is_empty() {
+            self.emit_event(
+                "no_settlements_needed",
+                json!({
+                    "circle_id": circle_id,
+                    "message": "No settlements required - all balances are even.",
+                }),
+            );
+            
+            // Still need to refund any escrow deposits and cleanup
+            for member in &circle.members {
+                let escrow_key = format!("{}:{}", circle_id, member);
+                if let Some(escrowed) = self.escrow_deposits.get(&escrow_key) {
+                    if escrowed > 0 {
+                        self.escrow_deposits.remove(&escrow_key);
+                        Promise::new(member.clone()).transfer(yocto_to_token(escrowed));
+                    }
+                }
+                let autopay_key = format!("{}:{}", circle_id, member);
+                self.autopay_preferences.remove(&autopay_key);
+            }
+            
+            self.expenses.remove(&circle_id);
+            self.confirmations.remove(&circle_id);
+            
+            let mut updated_circle = circle.clone();
+            updated_circle.locked = false;
+            updated_circle.membership_open = true;
+            self.circles.insert(&circle_id, &updated_circle);
+            
+            self.emit_event(
+                "ledger_settled",
+                json!({
+                    "circle_id": circle_id,
+                    "all_autopay": true,
+                    "settlements_count": 0,
+                }),
+            );
+            return;
+        }
         
         // Determine which members have autopay enabled
         let autopay_members: Vec<AccountId> = circle.members.iter()
@@ -984,150 +1090,111 @@ impl NearSplitter {
             .collect();
 
         let all_autopay = autopay_members.len() == circle.members.len();
+        require!(all_autopay, "All members must have autopay enabled to settle");
+
+        // Ensure each debtor has escrow to cover their obligation; otherwise revert
+        for suggestion in &suggestions {
+            if suggestion.amount.0 == 0 {
+                continue;
+            }
+            let from_key = format!("{}:{}", circle_id, suggestion.from);
+            let escrowed = self.escrow_deposits.get(&from_key).unwrap_or(0);
+            require!(
+                escrowed >= suggestion.amount.0,
+                "Insufficient escrow to cover settlement"
+            );
+        }
         
-        // Collect transfers to make at the end
-        let mut transfers_to_make: Vec<(AccountId, u128)> = Vec::new();
+        // Track payouts to credit (pull-payment pattern)
+        let mut payouts_to_credit: Vec<(AccountId, u128)> = Vec::new();
 
-        if all_autopay {
-            // All members have autopay - distribute escrowed funds
-            self.emit_event(
-                "autopay_triggered",
-                json!({
-                    "circle_id": circle_id,
-                    "message": "All members have autopay. Distributing escrowed funds.",
-                    "settlement_count": suggestions.len(),
-                    "autopay_members": autopay_members.len(),
-                }),
-            );
+        // All members have autopay - distribute escrowed funds
+        self.emit_event(
+            "autopay_triggered",
+            json!({
+                "circle_id": circle_id,
+                "message": "All members have autopay. Distributing escrowed funds.",
+                "settlement_count": suggestions.len(),
+                "autopay_members": autopay_members.len(),
+            }),
+        );
 
-            // Execute actual transfers from escrow
-            for suggestion in &suggestions {
-                if suggestion.amount.0 > 0 {
-                    let from_key = format!("{}:{}", circle_id, suggestion.from);
-                    let escrowed = self.escrow_deposits.get(&from_key).unwrap_or(0);
-                    
-                    self.emit_event(
-                        "settlement_processing",
-                        json!({
-                            "circle_id": circle_id,
-                            "from": suggestion.from,
-                            "to": suggestion.to,
-                            "amount": suggestion.amount,
-                            "escrowed": U128(escrowed),
-                        }),
-                    );
-                    
-                    if escrowed >= suggestion.amount.0 {
-                        // Deduct from escrow
-                        let remaining = escrowed - suggestion.amount.0;
-                        if remaining > 0 {
-                            self.escrow_deposits.insert(&from_key, &remaining);
-                        } else {
-                            self.escrow_deposits.remove(&from_key);
-                        }
+        // Process transfers from escrow
+        for suggestion in &suggestions {
+            if suggestion.amount.0 == 0 {
+                continue;
+            }
+            let from_key = format!("{}:{}", circle_id, suggestion.from);
+            let escrowed = self.escrow_deposits.get(&from_key).unwrap_or(0);
 
-                        // Queue the transfer (don't execute yet)
-                        transfers_to_make.push((suggestion.to.clone(), suggestion.amount.0));
-
-                        // Record settlement
-                        let settlement = Settlement {
-                            circle_id: circle_id.clone(),
-                            from: suggestion.from.clone(),
-                            to: suggestion.to.clone(),
-                            amount: suggestion.amount,
-                            token: None,
-                            ts_ms: timestamp_ms(),
-                            tx_kind: "autopay_escrow".to_string(),
-                        };
-                        self.record_settlement(settlement);
-
-                        self.emit_event(
-                            "settlement_executed",
-                            json!({
-                                "circle_id": circle_id,
-                                "from": suggestion.from,
-                                "to": suggestion.to,
-                                "amount": suggestion.amount,
-                            }),
-                        );
-                    } else {
-                        self.emit_event(
-                            "settlement_failed",
-                            json!({
-                                "circle_id": circle_id,
-                                "from": suggestion.from,
-                                "to": suggestion.to,
-                                "amount": suggestion.amount,
-                                "escrowed": U128(escrowed),
-                                "reason": "Insufficient escrow",
-                            }),
-                        );
-                    }
-                }
+            // Deduct from escrow (safe due to pre-check)
+            let remaining = escrowed - suggestion.amount.0;
+            if remaining > 0 {
+                self.escrow_deposits.insert(&from_key, &remaining);
+            } else {
+                self.escrow_deposits.remove(&from_key);
             }
 
-            // Refund any remaining escrow to members
-            for member in &circle.members {
-                let escrow_key = format!("{}:{}", circle_id, member);
-                if let Some(remaining) = self.escrow_deposits.get(&escrow_key) {
-                    if remaining > 0 {
-                        self.escrow_deposits.remove(&escrow_key);
-                        // Queue refund transfer
-                        transfers_to_make.push((member.clone(), remaining));
-                    }
-                }
-            }
+            payouts_to_credit.push((suggestion.to.clone(), suggestion.amount.0));
 
-        } else {
-            // Partial autopay - optimize settlements
+            let settlement = Settlement {
+                circle_id: circle_id.clone(),
+                from: suggestion.from.clone(),
+                to: suggestion.to.clone(),
+                amount: suggestion.amount,
+                token: None,
+                ts_ms: timestamp_ms(),
+                tx_kind: "autopay_escrow".to_string(),
+            };
+            self.record_settlement(settlement);
+
             self.emit_event(
-                "partial_autopay",
+                "settlement_executed",
                 json!({
                     "circle_id": circle_id,
-                    "autopay_members": autopay_members.len(),
-                    "total_members": circle.members.len(),
+                    "from": suggestion.from,
+                    "to": suggestion.to,
+                    "amount": suggestion.amount,
                 }),
             );
+        }
 
-            // Execute transfers for autopay members only
-            for suggestion in &suggestions {
-                let from_autopay = autopay_members.contains(&suggestion.from);
-                let to_autopay = autopay_members.contains(&suggestion.to);
-
-                if from_autopay && suggestion.amount.0 > 0 {
-                    // Debtor has autopay - use escrow
-                    let from_key = format!("{}:{}", circle_id, suggestion.from);
-                    let escrowed = self.escrow_deposits.get(&from_key).unwrap_or(0);
-                    
-                    if escrowed >= suggestion.amount.0 {
-                        // Deduct from escrow
-                        let remaining = escrowed - suggestion.amount.0;
-                        if remaining > 0 {
-                            self.escrow_deposits.insert(&from_key, &remaining);
-                        } else {
-                            self.escrow_deposits.remove(&from_key);
-                        }
-
-                        // Queue transfer
-                        transfers_to_make.push((suggestion.to.clone(), suggestion.amount.0));
-
-                        // Record settlement
-                        let settlement = Settlement {
-                            circle_id: circle_id.clone(),
-                            from: suggestion.from.clone(),
-                            to: suggestion.to.clone(),
-                            amount: suggestion.amount,
-                            token: None,
-                            ts_ms: timestamp_ms(),
-                            tx_kind: if to_autopay { "autopay_escrow" } else { "autopay_manual_recipient" }.to_string(),
-                        };
-                        self.record_settlement(settlement);
-                    }
+        // Refund any remaining escrow to members
+        for member in &circle.members {
+            let escrow_key = format!("{}:{}", circle_id, member);
+            if let Some(remaining) = self.escrow_deposits.get(&escrow_key) {
+                if remaining > 0 {
+                    self.escrow_deposits.remove(&escrow_key);
+                    payouts_to_credit.push((member.clone(), remaining));
                 }
             }
         }
 
-        // Clear expenses and confirmations (do this BEFORE returning promises)
+        // Aggregate and immediately transfer payouts (no manual withdraw required)
+        let mut aggregated: HashMap<AccountId, u128> = HashMap::new();
+        for (recipient, amount) in payouts_to_credit {
+            if amount == 0 {
+                continue;
+            }
+            let entry = aggregated.entry(recipient).or_insert(0);
+            *entry = entry.saturating_add(amount);
+        }
+
+        for (recipient, total) in aggregated {
+            // Send the funds now; no pending balance left behind
+            Promise::new(recipient.clone()).transfer(yocto_to_token(total));
+
+            self.emit_event(
+                "payout_sent",
+                json!({
+                    "circle_id": circle_id,
+                    "account_id": recipient,
+                    "amount": U128(total),
+                }),
+            );
+        }
+
+        // Clear expenses and confirmations
         self.expenses.remove(&circle_id);
         self.confirmations.remove(&circle_id);
         
@@ -1143,23 +1210,6 @@ impl NearSplitter {
                 "all_autopay": all_autopay,
             }),
         );
-
-        // NOW create and return all promises batched together
-        if transfers_to_make.is_empty() {
-            // No transfers needed
-            Promise::new(env::current_account_id())
-        } else {
-            // Create first promise
-            let (first_recipient, first_amount) = &transfers_to_make[0];
-            let mut batch = Promise::new(first_recipient.clone()).transfer(yocto_to_token(*first_amount));
-            
-            // Chain remaining promises
-            for (recipient, amount) in transfers_to_make.iter().skip(1) {
-                batch = batch.and(Promise::new(recipient.clone()).transfer(yocto_to_token(*amount)));
-            }
-            
-            batch
-        }
     }
 
     /// Get the list of accounts that have confirmed the ledger for a circle
@@ -1179,23 +1229,94 @@ impl NearSplitter {
     }
 
     /// Reset confirmations for a circle (e.g., after adding new expenses)
+    /// Also unlocks the circle and refunds all escrowed deposits
     pub fn reset_confirmations(&mut self, circle_id: String) {
         let account = env::predecessor_account_id();
-        let circle = self
+        let mut circle = self
             .circles
             .get(&circle_id)
             .unwrap_or_else(|| env::panic_str("Circle not found"));
 
         require!(circle.owner == account, "Only circle owner can reset confirmations");
 
+        // Refund all escrowed deposits for this circle
+        for member in &circle.members {
+            let escrow_key = format!("{}:{}", circle_id, member);
+            if let Some(escrowed) = self.escrow_deposits.get(&escrow_key) {
+                if escrowed > 0 {
+                    self.escrow_deposits.remove(&escrow_key);
+                    Promise::new(member.clone()).transfer(yocto_to_token(escrowed));
+                    
+                    self.emit_event(
+                        "escrow_refunded",
+                        json!({
+                            "circle_id": circle_id,
+                            "account_id": member,
+                            "amount": U128(escrowed),
+                        }),
+                    );
+                }
+            }
+            // Also reset autopay preferences
+            let autopay_key = format!("{}:{}", circle_id, member);
+            self.autopay_preferences.remove(&autopay_key);
+        }
+
         self.confirmations.remove(&circle_id);
+        
+        // Unlock the circle and reopen membership
+        if circle.locked {
+            circle.locked = false;
+            circle.membership_open = true; // Reopen membership after reset
+            self.circles.insert(&circle_id, &circle);
+        }
         
         self.emit_event(
             "confirmations_reset",
             json!({
                 "circle_id": circle_id,
+                "unlocked": true,
+                "membership_open": true,
             }),
         );
+    }
+
+    /// Set whether the circle is open for new members to join.
+    /// Only the circle owner can call this.
+    /// When membership is closed, no one can join even with invite code.
+    /// Note: This is automatically set to false when first confirmation happens.
+    pub fn set_membership_open(&mut self, circle_id: String, open: bool) {
+        let account = env::predecessor_account_id();
+        let mut circle = self
+            .circles
+            .get(&circle_id)
+            .unwrap_or_else(|| env::panic_str("Circle not found"));
+
+        require!(circle.owner == account, "Only circle owner can change membership status");
+        
+        // Cannot open membership while circle is locked for settlement
+        if open && circle.locked {
+            env::panic_str("Cannot open membership while settlement is in progress");
+        }
+
+        circle.membership_open = open;
+        self.circles.insert(&circle_id, &circle);
+
+        self.emit_event(
+            "membership_status_changed",
+            json!({
+                "circle_id": circle_id,
+                "membership_open": open,
+            }),
+        );
+    }
+
+    /// Check if circle is open for new members
+    pub fn is_membership_open(&self, circle_id: String) -> bool {
+        self.circles
+            .get(&circle_id)
+            .map(|c| c.membership_open)
+            .unwrap_or(false)
     }
 
     /// Set autopay preference for the caller in a specific circle
@@ -1215,6 +1336,11 @@ impl NearSplitter {
             circle.members.iter().any(|m| m == &account),
             "Must be a circle member to set autopay"
         );
+
+        // Prevent disabling autopay when circle is locked for settlement
+        if !enabled && circle.locked {
+            env::panic_str("Cannot disable autopay while circle is locked for settlement");
+        }
 
         let key = format!("{}:{}", circle_id, account);
 
@@ -1326,6 +1452,79 @@ impl NearSplitter {
     pub fn get_escrow_deposit(&self, circle_id: String, account_id: AccountId) -> U128 {
         let key = format!("{}:{}", circle_id, account_id);
         U128(self.escrow_deposits.get(&key).unwrap_or(0))
+    }
+
+    /// Get the pending payout balance for an account.
+    /// This is the amount that can be withdrawn via withdraw_payout().
+    pub fn get_pending_payout(&self, account_id: AccountId) -> U128 {
+        U128(self.pending_payouts.get(&account_id).unwrap_or(0))
+    }
+
+    /// Withdraw all pending payouts for the caller.
+    /// This implements the pull-payment pattern for settlement distributions.
+    /// Returns a Promise that transfers all pending funds to the caller.
+    #[payable]
+    pub fn withdraw_payout(&mut self) -> Promise {
+        require!(
+            env::attached_deposit().as_yoctonear() == ONE_YOCTO,
+            "Attach exactly 1 yoctoNEAR for security"
+        );
+
+        let account = env::predecessor_account_id();
+        let pending = self.pending_payouts.get(&account).unwrap_or(0);
+
+        require!(pending > 0, "No pending payouts to withdraw");
+
+        // Clear the pending payout before transfer (reentrancy protection)
+        self.pending_payouts.remove(&account);
+
+        self.emit_event(
+            "payout_withdrawn",
+            json!({
+                "account_id": account,
+                "amount": U128(pending),
+            }),
+        );
+
+        // Single promise transfer - no joint promises
+        Promise::new(account).transfer(yocto_to_token(pending))
+    }
+
+    /// Withdraw a specific amount from pending payouts.
+    /// Useful if you want to withdraw only part of your pending balance.
+    #[payable]
+    pub fn withdraw_payout_partial(&mut self, amount: U128) -> Promise {
+        require!(
+            env::attached_deposit().as_yoctonear() == ONE_YOCTO,
+            "Attach exactly 1 yoctoNEAR for security"
+        );
+
+        let account = env::predecessor_account_id();
+        let pending = self.pending_payouts.get(&account).unwrap_or(0);
+
+        require!(pending > 0, "No pending payouts to withdraw");
+        require!(amount.0 > 0, "Amount must be positive");
+        require!(amount.0 <= pending, "Insufficient pending balance");
+
+        // Update pending payout
+        let remaining = pending - amount.0;
+        if remaining > 0 {
+            self.pending_payouts.insert(&account, &remaining);
+        } else {
+            self.pending_payouts.remove(&account);
+        }
+
+        self.emit_event(
+            "payout_withdrawn",
+            json!({
+                "account_id": account,
+                "amount": amount,
+                "remaining": U128(remaining),
+            }),
+        );
+
+        // Single promise transfer - no joint promises
+        Promise::new(account).transfer(yocto_to_token(amount.0))
     }
 }
 

@@ -10,15 +10,15 @@ repository = "https://github.com/johno/NearSplitter"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-near-sdk = { version = "5.1.0", features = ["unit-testing"] }
-near-contract-standards = "5.1.0"
-borsh = { version = "1.5", features = ["derive"] }
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
+near-sdk = { version = "5.5.0", features = ["legacy"] }
+near-contract-standards = "5.5.0"
+borsh = "1.5"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 
 
 [dev-dependencies]
-near-sdk = { version = "5.1.0", features = ["unit-testing"] }
+near-sdk = { version = "=5.5.0", default-features = false, features = ["unit-testing"] }
 
 [profile.release]
 codegen-units = 1
@@ -26,5 +26,4 @@ opt-level = "z"
 lto = true
 debug = false
 panic = "abort"
-overflow-checks = false
-strip = "debuginfo"
+overflow-checks = true

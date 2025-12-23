@@ -34,6 +34,7 @@ import type {
 } from '@/lib/types';
 import { getCircle } from '@/lib/near/contract';
 import { GAS_150_TGAS } from '@/lib/constants';
+import type { FinalExecutionOutcome } from 'near-api-js/lib/providers';
 
 interface MessageState {
   type: 'success' | 'error';
@@ -585,12 +586,46 @@ export default function HomePage() {
             if (usePassword && sanitizedPassword) {
               args.invite_code = sanitizedPassword;
             }
-            await createCircleMutation.execute('create_circle', args);
+            const outcome = await createCircleMutation.execute('create_circle', args) as FinalExecutionOutcome | undefined;
+            
+            // Extract the returned circle ID from the transaction result
+            let newCircleId: string | null = null;
+            if (outcome && typeof outcome.status === 'object' && outcome.status !== null) {
+              const status = outcome.status as { SuccessValue?: string };
+              if (status.SuccessValue) {
+                try {
+                  const decoded = atob(status.SuccessValue);
+                  // The contract returns the circle ID as a JSON string
+                  newCircleId = JSON.parse(decoded);
+                } catch {
+                  // If JSON parse fails, try using raw decoded value
+                  newCircleId = atob(status.SuccessValue);
+                }
+              }
+            }
+            
             setCreateCircleName('');
             setCreateCirclePassword('');
             setUsePassword(false);
+            
+            // Immediately track and select the new circle
+            if (newCircleId) {
+              setTrackedCircleIds((prev: string[]) => uniq([...prev, newCircleId!]));
+              setSelectedCircleId(newCircleId);
+              
+              // Fetch the circle data immediately and add to circleMap
+              if (near.viewFunction) {
+                try {
+                  const newCircle = await getCircle(newCircleId, near.viewFunction);
+                  setCircleMap((prev: Record<string, Circle>) => ({ ...prev, [newCircleId!]: newCircle }));
+                } catch (fetchError) {
+                  console.warn('[CreateCircle] Could not fetch new circle data:', fetchError);
+                }
+              }
+            }
+            
             await memberCircles.mutate();
-            setNotification({ type: 'success', text: 'Circle created successfully!' });
+            setNotification({ type: 'success', text: `Circle created successfully!${newCircleId ? ` ID: ${newCircleId}` : ''}` });
             setConfirmationModal({ isOpen: false, type: '', onConfirm: () => {} });
           } catch (error) {
             setNotification({ type: 'error', text: (error as Error).message });
@@ -599,7 +634,7 @@ export default function HomePage() {
         }
       });
     },
-    [createCircleName, createCirclePassword, usePassword, createCircleMutation, memberCircles]
+    [createCircleName, createCirclePassword, usePassword, createCircleMutation, memberCircles, setTrackedCircleIds, setSelectedCircleId, near.viewFunction, setCircleMap]
   );
 
   const handleJoinCircle = useCallback(
@@ -640,6 +675,18 @@ export default function HomePage() {
             setJoinCircleId('');
             setJoinCirclePassword('');
             setTrackedCircleIds((prev: string[]) => uniq([...prev, trimmed]));
+            setSelectedCircleId(trimmed);
+            
+            // Fetch the circle data immediately and add to circleMap
+            if (near.viewFunction) {
+              try {
+                const joinedCircle = await getCircle(trimmed, near.viewFunction);
+                setCircleMap((prev: Record<string, Circle>) => ({ ...prev, [trimmed]: joinedCircle }));
+              } catch (fetchError) {
+                console.warn('[JoinCircle] Could not fetch circle data:', fetchError);
+              }
+            }
+            
             await memberCircles.mutate();
             setNotification({ type: 'success', text: 'Joined circle successfully!' });
             setConfirmationModal({ isOpen: false, type: '', onConfirm: () => {} });
@@ -650,7 +697,7 @@ export default function HomePage() {
         }
       });
     },
-    [joinCircleId, joinCirclePassword, joinCircleMutation, memberCircles, setTrackedCircleIds]
+    [joinCircleId, joinCirclePassword, joinCircleMutation, memberCircles, setTrackedCircleIds, near.viewFunction, setCircleMap, setSelectedCircleId]
   );
 
   const handleAddExpense = useCallback(
@@ -1381,9 +1428,84 @@ export default function HomePage() {
                           </svg>
                           <dd>{formatTimestamp(selectedCircle.created_ms)}</dd>
                         </div>
+                        {/* Circle Status Badges */}
+                        <div className="flex items-center gap-2 flex-wrap mt-1">
+                          {selectedCircle.locked && (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-yellow-500/20 text-yellow-400 border border-yellow-500/30">
+                              <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                                <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" />
+                              </svg>
+                              Settlement in Progress
+                            </span>
+                          )}
+                          {!selectedCircle.membership_open && !selectedCircle.locked && (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-gray-500/20 text-gray-400 border border-gray-500/30">
+                              <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                                <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" />
+                              </svg>
+                              Closed to New Members
+                            </span>
+                          )}
+                          {selectedCircle.membership_open && !selectedCircle.locked && (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-green-500/20 text-green-400 border border-green-500/30">
+                              <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                              </svg>
+                              Open for Members
+                            </span>
+                          )}
+                        </div>
                       </dl>
                     </div>
                   </div>
+                  
+                  {/* Owner Controls - Membership Toggle */}
+                  {selectedCircle.owner === near.accountId && !selectedCircle.locked && (
+                    <div className={`rounded-lg border border-gray-700/50 bg-gray-900/50 p-2.5 ${currentTheme.glowSm} backdrop-blur-sm`}>
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-sm font-semibold text-gray-300">Membership</p>
+                          <p className="text-xs text-gray-500">
+                            {selectedCircle.membership_open ? 'New members can join' : 'Circle is closed to new members'}
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            if (!near.accountId || !near.callFunction) return;
+                            try {
+                              await near.callFunction({
+                                contractId,
+                                method: 'set_membership_open',
+                                args: { circle_id: selectedCircle.id, open: !selectedCircle.membership_open },
+                                gas: GAS_150_TGAS,
+                                deposit: '0',
+                              });
+                              setNotification({ type: 'success', text: selectedCircle.membership_open ? 'Circle closed to new members' : 'Circle opened for new members' });
+                              // Refresh circle data
+                              if (near.viewFunction) {
+                                const updated = await getCircle(selectedCircle.id, near.viewFunction);
+                                setCircleMap(prev => ({ ...prev, [updated.id]: updated }));
+                              }
+                            } catch (err) {
+                              setNotification({ type: 'error', text: `Failed to update membership: ${err}` });
+                            }
+                          }}
+                          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 ${currentTheme.focusRing} ${
+                            selectedCircle.membership_open ? currentTheme.bg : 'bg-gray-600'
+                          }`}
+                          aria-pressed={selectedCircle.membership_open}
+                          aria-label={selectedCircle.membership_open ? 'Close circle to new members' : 'Open circle to new members'}
+                        >
+                          <span
+                            className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                              selectedCircle.membership_open ? 'translate-x-6' : 'translate-x-1'
+                            }`}
+                          />
+                        </button>
+                      </div>
+                    </div>
+                  )}
                   
                   {/* Circle ID for sharing */}
                   <div className={`rounded-lg border border-gray-700/50 bg-gray-900/50 p-2.5 ${currentTheme.glowSm} backdrop-blur-sm`}>

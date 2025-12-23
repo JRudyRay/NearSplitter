@@ -91,3 +91,18 @@ export async function getEscrowDeposit(circleId: string, accountId: string, view
   const view = createViewCaller(viewFn);
   return view<string>("get_escrow_deposit", { circle_id: circleId, account_id: accountId });
 }
+
+export async function isMembershipOpen(circleId: string, viewFn: ViewFunction): Promise<boolean> {
+  const view = createViewCaller(viewFn);
+  return view<boolean>("is_membership_open", { circle_id: circleId });
+}
+
+export async function getPendingPayout(accountId: string, viewFn: ViewFunction): Promise<string> {
+  const view = createViewCaller(viewFn);
+  return view<string>("get_pending_payout", { account_id: accountId });
+}
+
+export async function listCirclesByMember(accountId: string, viewFn: ViewFunction, from = 0, limit = 50): Promise<Circle[]> {
+  const view = createViewCaller(viewFn);
+  return view<Circle[]>("list_circles_by_member", { account_id: accountId, from, limit });
+}

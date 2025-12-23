@@ -5,6 +5,8 @@ export interface Circle {
   members: string[];
   created_ms: number;
   invite_code_hash?: string | null;
+  locked: boolean;
+  membership_open: boolean;
 }
 
 export interface MemberShare {

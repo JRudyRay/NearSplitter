@@ -6,6 +6,10 @@ out/
 coverage/
 dist/
 build/
+*.tsbuildinfo
+.eslintcache
+.turbo/
+.vercel/
 
 # Rust
 target/

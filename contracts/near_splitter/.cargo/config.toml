@@ -1,0 +1,6 @@
+[build]
+target = "wasm32-unknown-unknown"
+
+[target.wasm32-unknown-unknown]
+# Keep rustflags empty to avoid unsupported LLVM args; cargo-near will postprocess
+rustflags = []
