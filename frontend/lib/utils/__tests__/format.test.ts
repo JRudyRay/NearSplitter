@@ -5,8 +5,8 @@ import { formatNearAmount, parseNearAmount, shortenAccountId } from '@/lib/utils
 describe('format utilities', () => {
   it('formats yoctoNEAR amounts into human readable NEAR', () => {
     const oneNearYocto = '1000000000000000000000000';
-    expect(formatNearAmount(oneNearYocto, 2)).toBe('1');
-    expect(formatNearAmount(oneNearYocto, 3)).toBe('1');
+    expect(formatNearAmount(oneNearYocto, 2)).toBe('1.00');
+    expect(formatNearAmount(oneNearYocto, 3)).toBe('1.000');
   });
 
   it('parses user input into yoctoNEAR', () => {
