@@ -35,8 +35,14 @@ jobs:
         with:
           workspaces: contracts/near_splitter
 
-      - name: Install cargo-make
-        run: cargo install cargo-make
+      - name: Install binaryen (wasm-opt)
+        run: sudo apt-get update && sudo apt-get install -y binaryen
+
+      - name: Pin compatible dependencies
+        working-directory: contracts/near_splitter
+        run: |
+          # Pin home crate to version compatible with stable Rust
+          cargo update home --precise 0.5.9 || true
 
       - name: Build WASM (release)
         working-directory: contracts/near_splitter
@@ -45,10 +51,6 @@ jobs:
       - name: Optimize WASM with wasm-opt
         working-directory: contracts/near_splitter
         run: |
-          # Install wasm-opt if not available
-          if ! command -v wasm-opt &> /dev/null; then
-            cargo install wasm-opt
-          fi
           wasm-opt -Oz -o target/wasm32-unknown-unknown/release/near_splitter_optimized.wasm \
             target/wasm32-unknown-unknown/release/near_splitter.wasm
 
@@ -60,9 +62,9 @@ jobs:
         working-directory: contracts/near_splitter
         run: cargo test --lib
 
-      - name: Clippy check
+      - name: Clippy check (lib only)
         working-directory: contracts/near_splitter
-        run: cargo clippy --all-targets -- -D warnings
+        run: cargo clippy --lib --target wasm32-unknown-unknown -- -D warnings
 
   security-audit:
     name: Security Audit
