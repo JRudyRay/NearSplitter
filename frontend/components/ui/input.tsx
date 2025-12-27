@@ -3,20 +3,50 @@
 import { forwardRef } from "react";
 import { cn } from "@/lib/utils/cn";
 
-export interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> {}
+export interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> {
+  error?: boolean;
+  helperText?: string;
+  label?: string;
+}
 
 export const Input = forwardRef<HTMLInputElement, InputProps>((props, ref) => {
-  const { className, type = "text", ...rest } = props;
+  const { className, type = "text", error, helperText, label, id, ...rest } = props;
+  
   return (
-    <input
-      ref={ref}
-      type={type}
-      className={cn(
-        "flex h-10 w-full rounded-lg border border-gray-700 bg-gray-900 px-3 py-2 text-sm text-gray-100 placeholder:text-gray-500 transition-colors focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50",
-        className
+    <div className="w-full">
+      {label && (
+        <label 
+          htmlFor={id} 
+          className="block text-sm font-semibold text-muted-fg mb-2"
+        >
+          {label}
+        </label>
       )}
-      {...rest}
-    />
+      <input
+        ref={ref}
+        id={id}
+        type={type}
+        className={cn(
+          "flex h-12 w-full rounded-xl border bg-card px-4 py-3 text-base text-fg placeholder:text-muted-fg transition-all duration-200",
+          "focus:outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500",
+          "hover:border-border/80",
+          "disabled:cursor-not-allowed disabled:opacity-50 disabled:bg-muted",
+          error 
+            ? "border-danger focus:border-danger focus:ring-danger/30" 
+            : "border-border",
+          className
+        )}
+        {...rest}
+      />
+      {helperText && (
+        <p className={cn(
+          "mt-1.5 text-sm",
+          error ? "text-danger" : "text-muted-fg"
+        )}>
+          {helperText}
+        </p>
+      )}
+    </div>
   );
 });
 

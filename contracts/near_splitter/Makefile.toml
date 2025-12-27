@@ -13,6 +13,12 @@ args = ["build", "--target", "wasm32-unknown-unknown", "--release"]
 command = "cargo"
 args = ["test"]
 
+[tasks.test-integration]
+description = "Build WASM and run integration tests"
+dependencies = ["build-release"]
+command = "cargo"
+args = ["test", "--test", "integration", "--", "--nocapture"]
+
 [tasks.clippy]
 command = "cargo"
 args = ["clippy", "--all-targets", "--all-features", "--", "-D", "warnings"]

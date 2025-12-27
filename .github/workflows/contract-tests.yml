@@ -1,0 +1,77 @@
+name: Smart Contract Tests
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - 'contracts/**'
+      - '.github/workflows/contract-tests.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'contracts/**'
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  build-and-test:
+    name: Build & Integration Tests
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-action@stable
+        with:
+          targets: wasm32-unknown-unknown
+          components: clippy, rustfmt
+
+      - name: Cache Cargo dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: contracts/near_splitter
+
+      - name: Install cargo-make
+        run: cargo install cargo-make
+
+      - name: Build WASM (release)
+        working-directory: contracts/near_splitter
+        run: cargo build --target wasm32-unknown-unknown --release
+
+      - name: Optimize WASM with wasm-opt
+        working-directory: contracts/near_splitter
+        run: |
+          # Install wasm-opt if not available
+          if ! command -v wasm-opt &> /dev/null; then
+            cargo install wasm-opt
+          fi
+          wasm-opt -Oz -o target/wasm32-unknown-unknown/release/near_splitter_optimized.wasm \
+            target/wasm32-unknown-unknown/release/near_splitter.wasm
+
+      - name: Run integration tests
+        working-directory: contracts/near_splitter
+        run: cargo test --test integration -- --nocapture
+
+      - name: Run unit tests
+        working-directory: contracts/near_splitter
+        run: cargo test --lib
+
+      - name: Clippy check
+        working-directory: contracts/near_splitter
+        run: cargo clippy --all-targets -- -D warnings
+
+  security-audit:
+    name: Security Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install cargo-audit
+        run: cargo install cargo-audit
+      - name: Run security audit
+        working-directory: contracts/near_splitter
+        run: cargo audit
+        continue-on-error: true  # Don't fail on advisories, just report

@@ -1,5 +1,5 @@
 import React from 'react';
-import { CircleDot, Receipt, Zap } from 'lucide-react';
+import { CircleDot, Receipt, Zap, ArrowRight } from 'lucide-react';
 
 interface EmptyStateProps {
   type: 'circles' | 'expenses' | 'settlements';
@@ -10,62 +10,71 @@ export function EmptyState({ type, actionButton }: EmptyStateProps) {
   const config = {
     circles: {
       icon: CircleDot,
-      title: 'No circles yet',
-      description: 'Create your first circle to start tracking shared expenses with friends, roommates, or travel buddies.',
+      title: 'Create Your First Circle',
+      description: 'Circles are groups for splitting expenses. Perfect for roommates, trips, or any shared costs.',
       tips: [
-        'Perfect for roommates sharing rent and utilities',
-        'Track expenses during group trips',
-        'Split costs for events and parties',
+        { emoji: '🏠', text: 'Roommates sharing rent and utilities' },
+        { emoji: '✈️', text: 'Group trips and vacations' },
+        { emoji: '🎉', text: 'Events, parties, and dinners' },
       ],
+      ctaText: 'Get started by creating a circle above',
     },
     expenses: {
       icon: Receipt,
-      title: 'No expenses yet',
-      description: 'Add your first expense to start tracking who paid for what. You can split costs evenly or with custom percentages.',
+      title: 'No Expenses Yet',
+      description: 'Add expenses as they happen. NearSplitter automatically calculates who owes what.',
       tips: [
-        'Add expenses as they happen to stay organized',
-        'Use clear descriptions to remember what they were for',
-        'Split evenly or customize shares per person',
+        { emoji: '💡', text: 'Add expenses right when you pay' },
+        { emoji: '📝', text: 'Use clear descriptions for easy tracking' },
+        { emoji: '⚖️', text: 'Split evenly or customize shares' },
       ],
+      ctaText: 'Add your first expense using the form',
     },
     settlements: {
       icon: Zap,
-      title: 'Ready to settle',
-      description: 'When everyone confirms, settlements will execute automatically from escrow. No manual transfers needed!',
+      title: 'Ready to Settle Up',
+      description: 'When all members confirm, settlements execute automatically from escrow. No manual transfers needed!',
       tips: [
-        'All members must confirm for auto-settlement',
-        'Deposits are held securely in escrow',
-        'Optimal settlements are calculated automatically',
+        { emoji: '✅', text: 'All members must confirm for auto-settlement' },
+        { emoji: '🔒', text: 'Deposits are held securely in escrow' },
+        { emoji: '⚡', text: 'Optimal settlements are calculated automatically' },
       ],
+      ctaText: 'Confirm your expenses when ready',
     },
   };
 
-  const { icon: Icon, title, description, tips } = config[type];
+  const { icon: Icon, title, description, tips, ctaText } = config[type];
 
   return (
-    <div className="flex flex-col items-center justify-center py-12 px-4">
+    <div className="flex flex-col items-center justify-center py-10 px-4 animate-fade-in">
       <div className="max-w-md w-full space-y-6">
-        {/* Icon */}
+        {/* Icon with glow effect */}
         <div className="flex justify-center">
-          <div className="rounded-full bg-gradient-to-br from-blue-500/20 to-purple-500/20 p-6 ring-1 ring-white/10">
-            <Icon className="w-12 h-12 text-blue-400" />
+          <div className="rounded-2xl bg-brand-500/10 p-5 ring-1 ring-brand-500/30 shadow-near-glow animate-glow-pulse">
+            <Icon className="w-10 h-10 text-brand-500" strokeWidth={1.5} />
           </div>
         </div>
 
         {/* Content */}
         <div className="text-center space-y-3">
-          <h3 className="text-xl font-bold text-white">{title}</h3>
-          <p className="text-gray-400 text-sm">{description}</p>
+          <h3 className="text-xl font-bold text-fg">{title}</h3>
+          <p className="text-muted-fg text-sm leading-relaxed">{description}</p>
         </div>
 
-        {/* Tips */}
-        <div className="bg-white/5 rounded-xl p-4 space-y-2">
+        {/* Tips with better visual hierarchy */}
+        <div className="bg-card/60 rounded-xl p-4 space-y-3 border border-border">
           {tips.map((tip, index) => (
             <div key={index} className="flex items-start gap-3 text-sm">
-              <div className="mt-1 w-1.5 h-1.5 rounded-full bg-blue-400 flex-shrink-0" />
-              <span className="text-gray-300">{tip}</span>
+              <span className="text-lg flex-shrink-0">{tip.emoji}</span>
+              <span className="text-fg/90 pt-0.5">{tip.text}</span>
             </div>
           ))}
+        </div>
+
+        {/* CTA hint */}
+        <div className="flex items-center justify-center gap-2 text-brand-500 text-sm font-medium">
+          <ArrowRight className="w-4 h-4 animate-bounce-subtle" />
+          <span>{ctaText}</span>
         </div>
 
         {/* Action Button */}

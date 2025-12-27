@@ -2,7 +2,7 @@
 Split shared expenses with friends using a NEAR Protocol smart contract.
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE) [![NEAR](https://img.shields.io/badge/NEAR-Protocol-00C08B)](https://near.org)
 Live demo: https://jrudyray.github.io/NearSplitter/  
-Contract (example): `nearsplitter-5134.testnet`
+Contract (example): `nearsplitter-v4.testnet`
 What it does
 - Track shared expenses on-chain for transparency and tamper-resistance.
 - Let groups ("circles") add expenses, confirm them, and compute minimal settlements.
@@ -20,7 +20,7 @@ Developer notes
 Live demo: https://jrudyray.github.io/NearSplitter/
 
 What this is
-NearSplitter is a lightweight shared-expense tracker whose settlement logic runs on NEAR Protocol. The UI is published to GitHub Pages and talks to a Rust smart contract (example contract: `nearsplitter-5134.testnet`).
+NearSplitter is a lightweight shared-expense tracker whose settlement logic runs on NEAR Protocol. The UI is published to GitHub Pages and talks to a Rust smart contract (example contract: `nearsplitter-v4.testnet`).
 
 Quick use
 1. Open the demo URL above.

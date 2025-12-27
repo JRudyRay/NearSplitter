@@ -16,7 +16,7 @@ export function Skeleton({
   height,
   count = 1 
 }: SkeletonProps) {
-  const baseClasses = 'animate-pulse bg-gradient-to-r from-gray-800 via-gray-700 to-gray-800 bg-[length:200%_100%]';
+  const baseClasses = 'animate-pulse bg-gradient-to-r from-muted via-border to-muted bg-[length:200%_100%]';
   
   const variantClasses = {
     text: 'h-4 rounded',
@@ -47,7 +47,7 @@ export function Skeleton({
 // Specialized skeleton components
 export function CardSkeleton({ className }: { className?: string }) {
   return (
-    <div className={cn("rounded-xl border border-gray-800 bg-gray-900/50 p-4 space-y-3", className)}>
+    <div className={cn("rounded-xl border border-border bg-card/50 p-4 space-y-3", className)}>
       <div className="flex items-center gap-3">
         <Skeleton variant="circle" width="2.5rem" height="2.5rem" />
         <div className="flex-1 space-y-2">
@@ -64,7 +64,7 @@ export function ListSkeleton({ count = 3 }: { count?: number }) {
   return (
     <div className="space-y-2">
       {Array.from({ length: count }, (_, i) => (
-        <div key={i} className="rounded-lg border border-gray-800 bg-gray-900/40 p-3 space-y-2">
+        <div key={i} className="rounded-lg border border-border bg-card/40 p-3 space-y-2">
           <div className="flex items-center justify-between">
             <Skeleton variant="text" width="50%" />
             <Skeleton variant="text" width="20%" />
@@ -94,7 +94,7 @@ export function FormSkeleton() {
 
 export function CircleCardSkeleton() {
   return (
-    <div className="rounded-xl border border-gray-800 bg-gray-900/50 p-4 space-y-3">
+    <div className="rounded-xl border border-border bg-card/50 p-4 space-y-3">
       <div className="flex items-start justify-between">
         <div className="flex-1 space-y-2">
           <Skeleton variant="text" width="70%" height="1.5rem" />

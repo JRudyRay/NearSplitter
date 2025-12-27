@@ -59,42 +59,43 @@ export function ConfirmationModal({
 
   if (!isOpen) return null;
 
+  // Type configs using NEAR brand colors for success/info
   const typeConfig = {
     warning: {
-      iconBg: 'bg-yellow-500/20',
-      iconRing: 'ring-yellow-500/10',
-      iconColor: 'text-yellow-400',
-      borderColor: 'border-yellow-900/50',
-      gradientFrom: 'from-yellow-950/30',
-      buttonClass: 'bg-yellow-500 hover:bg-yellow-600 text-black font-bold',
-      defaultIcon: <AlertTriangle className="h-8 w-8" />
+      iconBg: 'bg-amber-500/20',
+      iconRing: 'ring-amber-500/20',
+      iconColor: 'text-amber-400',
+      borderColor: 'border-amber-900/50',
+      gradientFrom: 'from-amber-950/30',
+      buttonClass: 'bg-amber-500 hover:bg-amber-600 text-black font-bold shadow-lg',
+      defaultIcon: <AlertTriangle className="h-7 w-7" />
     },
     danger: {
       iconBg: 'bg-red-500/20',
-      iconRing: 'ring-red-500/10',
+      iconRing: 'ring-red-500/20',
       iconColor: 'text-red-400',
       borderColor: 'border-red-900/50',
       gradientFrom: 'from-red-950/30',
-      buttonClass: 'bg-red-500 hover:bg-red-600 text-white font-bold',
-      defaultIcon: <AlertTriangle className="h-8 w-8" />
+      buttonClass: 'bg-red-500 hover:bg-red-600 text-white font-bold shadow-lg',
+      defaultIcon: <AlertTriangle className="h-7 w-7" />
     },
     success: {
-      iconBg: 'bg-emerald-500/20',
-      iconRing: 'ring-emerald-500/10',
-      iconColor: 'text-emerald-400',
-      borderColor: 'border-emerald-900/50',
-      gradientFrom: 'from-emerald-950/30',
-      buttonClass: 'bg-emerald-500 hover:bg-emerald-600 text-black font-bold',
-      defaultIcon: <CheckCircle2 className="h-8 w-8" />
+      iconBg: 'bg-brand-500/20',
+      iconRing: 'ring-brand-500/30',
+      iconColor: 'text-brand-500',
+      borderColor: 'border-brand-500/30',
+      gradientFrom: 'from-brand-950/20',
+      buttonClass: 'bg-brand-500 hover:bg-brand-600 text-black font-bold shadow-near-glow',
+      defaultIcon: <CheckCircle2 className="h-7 w-7" />
     },
     info: {
-      iconBg: 'bg-blue-500/20',
-      iconRing: 'ring-blue-500/10',
-      iconColor: 'text-blue-400',
-      borderColor: 'border-blue-900/50',
-      gradientFrom: 'from-blue-950/30',
-      buttonClass: 'bg-blue-500 hover:bg-blue-600 text-black font-bold',
-      defaultIcon: <CheckCircle2 className="h-8 w-8" />
+      iconBg: 'bg-brand-500/20',
+      iconRing: 'ring-brand-500/30',
+      iconColor: 'text-brand-500',
+      borderColor: 'border-brand-500/30',
+      gradientFrom: 'from-brand-950/20',
+      buttonClass: 'bg-brand-500 hover:bg-brand-600 text-black font-bold shadow-near-glow',
+      defaultIcon: <CheckCircle2 className="h-7 w-7" />
     }
   };
 
@@ -102,7 +103,7 @@ export function ConfirmationModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200"
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fade-in"
       onClick={handleBackdropClick}
       onKeyDown={handleKeyDown}
       role="dialog"
@@ -111,7 +112,7 @@ export function ConfirmationModal({
     >
       <div
         className={cn(
-          "relative max-w-md w-full rounded-2xl border bg-gradient-to-br to-gray-950/50 p-6 shadow-2xl backdrop-blur-sm animate-in zoom-in-95 duration-200",
+          "relative max-w-md w-full rounded-2xl border bg-card p-6 shadow-2xl backdrop-blur-sm animate-scale-in",
           config.borderColor,
           config.gradientFrom
         )}
@@ -120,38 +121,38 @@ export function ConfirmationModal({
         <button
           onClick={onClose}
           disabled={isConfirming || loading}
-          className="absolute top-4 right-4 p-2 rounded-lg text-gray-400 hover:text-white hover:bg-white/10 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          className="absolute top-4 right-4 p-2 rounded-xl text-muted-fg hover:text-fg hover:bg-muted/60 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
           aria-label="Close modal"
         >
           <X className="h-5 w-5" />
         </button>
 
         {/* Icon */}
-        <div className="flex justify-center mb-4">
-          <div className={cn("rounded-full p-3 ring-4", config.iconBg, config.iconRing, config.iconColor)}>
+        <div className="flex justify-center mb-5">
+          <div className={cn("rounded-2xl p-4 ring-4", config.iconBg, config.iconRing, config.iconColor)}>
             {icon || config.defaultIcon}
           </div>
         </div>
 
         {/* Title */}
-        <h2 id="modal-title" className="text-2xl font-bold text-white text-center mb-2">
+        <h2 id="modal-title" className="text-2xl font-bold text-fg text-center mb-2">
           {title}
         </h2>
 
         {/* Description */}
         {description && (
-          <p className="text-gray-400 text-center mb-4">
+          <p className="text-muted-fg text-center mb-4 leading-relaxed">
             {description}
           </p>
         )}
 
         {/* Details */}
         {details && details.length > 0 && (
-          <div className="my-4 rounded-lg bg-black/40 p-4 space-y-2 border border-gray-800">
+          <div className="my-4 rounded-xl bg-muted/60 p-4 space-y-3 border border-border">
             {details.map((detail, index) => (
               <div key={index} className="flex justify-between items-center text-sm">
-                <span className="text-gray-400">{detail.label}:</span>
-                <span className="text-white font-medium">{detail.value}</span>
+                <span className="text-muted-fg">{detail.label}:</span>
+                <span className="text-fg font-medium">{detail.value}</span>
               </div>
             ))}
           </div>

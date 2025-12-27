@@ -2,49 +2,138 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ============================================
+   NEAR PROTOCOL NATIVE DESIGN SYSTEM
+   Dark Theme + Neon Green (#00EC97)
+   ============================================ */
+
 :root {
   color-scheme: dark;
+  
+  /* NEAR Brand Colors */
   --near-black: #000000;
+  --near-dark: #0a0a0a;
+  --near-surface: #111111;
+  --near-card: #161616;
+  --near-elevated: #1a1a1a;
+  --near-border: #2a2a2a;
+  --near-border-light: #3a3a3a;
+  
+  /* NEAR Mint/Green - Primary Brand Color */
+  --near-mint: #00EC97;
+  --near-mint-bright: #00FFa3;
+  --near-mint-dark: #00D386;
+  --near-mint-dim: #00a86b;
+  --near-mint-glow: rgba(0, 236, 151, 0.4);
+  --near-mint-soft: rgba(0, 236, 151, 0.15);
+  --near-mint-subtle: rgba(0, 236, 151, 0.08);
+  
+  /* Text Colors */
   --near-white: #ffffff;
-  --near-mint: #00ec97;
-  --near-mint-dark: #00d386;
-  --near-mint-light: #66f4be;
-  --near-gray-900: #0f0f0f;
-  --near-gray-800: #1a1a1a;
-  --near-gray-700: #2a2a2a;
-  --near-gray-600: #404040;
-  --near-gray-400: #a3a3a3;
-  --near-gray-300: #d4d4d4;
+  --near-text: #e5e5e5;
+  --near-text-secondary: #a3a3a3;
+  --near-text-muted: #737373;
+  
+  /* Semantic Colors */
+  --near-success: #00EC97;
+  --near-error: #ff4757;
+  --near-warning: #ffa502;
+  --near-info: #3b82f6;
+
+  /* ============================================
+     SEMANTIC TOKENS (for Tailwind + theming)
+     Values are RGB triplets: "r g b"
+     ============================================ */
+  --bg: 0 0 0;            /* near-black */
+  --fg: 229 229 229;      /* near-text */
+  --muted: 17 17 17;      /* near-surface */
+  --muted-fg: 163 163 163;/* near-text-secondary */
+  --card: 22 22 22;       /* near-card */
+  --card-fg: 229 229 229;
+  --border: 42 42 42;     /* near-border */
+  --ring: 0 236 151;      /* near-mint */
+  --accent: 0 236 151;    /* near-mint */
+  --accent-fg: 0 0 0;     /* near-black */
+  --danger: 255 71 87;    /* near-error */
+  --danger-fg: 255 255 255;
+}
+
+/* Light theme (opt-in via html.light). Default remains dark. */
+html.light {
+  color-scheme: light;
+
+  --bg: 250 250 250;          /* gray-50 */
+  --fg: 10 10 10;             /* near-dark */
+  --muted: 245 245 245;       /* gray-100 */
+  --muted-fg: 64 64 64;       /* gray-600 */
+  --card: 255 255 255;        /* white */
+  --card-fg: 10 10 10;
+  --border: 229 229 229;      /* gray-200 */
+  --ring: 0 236 151;
+  --accent: 0 236 151;
+  --accent-fg: 0 0 0;
+  --danger: 255 71 87;
+  --danger-fg: 255 255 255;
+}
+
+/* ============================================
+   BASE STYLES
+   ============================================ */
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  font-size: 16px;
+  scroll-behavior: smooth;
 }
 
 body {
-  font-family: "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  background: linear-gradient(to bottom, #000000, #0a0a0a);
+  font-family: "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  background: linear-gradient(180deg, rgb(var(--bg)) 0%, rgb(var(--bg)) 100%);
   min-height: 100vh;
-  color: var(--near-white);
-  font-size: 16px; /* Increased base font size */
+  color: rgb(var(--fg));
+  font-size: 1rem;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
-/* Custom scrollbar for NEAR theme */
+/* Focus visible for keyboard navigation */
+:focus-visible {
+  outline: 2px solid var(--near-mint);
+  outline-offset: 2px;
+}
+
+/* ============================================
+   SCROLLBAR - NEAR STYLED
+   ============================================ */
+
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
 }
 
 ::-webkit-scrollbar-track {
-  background: var(--near-gray-900);
+  background: rgb(var(--bg));
+  border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--near-gray-600);
+  background: rgb(var(--border));
   border-radius: 4px;
+  transition: background 0.2s;
 }
 
 ::-webkit-scrollbar-thumb:hover {
   background: var(--near-mint);
 }
 
-/* Shimmer animation for loading skeletons */
+/* ============================================
+   ANIMATIONS
+   ============================================ */
+
 @keyframes shimmer {
   0% {
     background-position: -200% 0;
@@ -54,6 +143,390 @@ body {
   }
 }
 
+@keyframes glow-pulse {
+  0%, 100% {
+    box-shadow: 0 0 20px var(--near-mint-glow);
+  }
+  50% {
+    box-shadow: 0 0 30px var(--near-mint-glow), 0 0 60px var(--near-mint-soft);
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes slide-up {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes scale-in {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes bounce-subtle {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-3px);
+  }
+}
+
 .animate-shimmer {
   animation: shimmer 2s infinite linear;
+}
+
+.animate-glow-pulse {
+  animation: glow-pulse 2s infinite ease-in-out;
+}
+
+.animate-fade-in {
+  animation: fade-in 0.3s ease-out forwards;
+}
+
+.animate-slide-up {
+  animation: slide-up 0.4s ease-out forwards;
+}
+
+.animate-scale-in {
+  animation: scale-in 0.2s ease-out forwards;
+}
+
+.animate-bounce-subtle {
+  animation: bounce-subtle 2s infinite ease-in-out;
+}
+
+/* ============================================
+   NEAR GLOW EFFECTS
+   ============================================ */
+
+.near-glow {
+  box-shadow: 0 0 20px var(--near-mint-glow);
+}
+
+.near-glow-sm {
+  box-shadow: 0 0 10px var(--near-mint-glow);
+}
+
+.near-glow-lg {
+  box-shadow: 0 0 40px var(--near-mint-glow), 0 0 80px var(--near-mint-soft);
+}
+
+.near-text-glow {
+  text-shadow: 0 0 20px var(--near-mint-glow);
+}
+
+/* ============================================
+   NEAR CARD STYLES
+   ============================================ */
+
+.near-card {
+  background: linear-gradient(145deg, rgb(var(--card)) 0%, rgb(var(--muted)) 100%);
+  border: 1px solid rgb(var(--border));
+  border-radius: 16px;
+  backdrop-filter: blur(8px);
+  transition: all 0.2s ease;
+}
+
+.near-card:hover {
+  border-color: rgb(var(--border));
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.25);
+}
+
+.near-card-highlight {
+  background: linear-gradient(145deg, rgb(var(--card)) 0%, rgb(var(--muted)) 100%);
+  border: 1px solid rgb(var(--accent));
+  border-radius: 16px;
+  box-shadow: 0 0 20px var(--near-mint-soft);
+}
+
+/* ============================================
+   LOGO ASSET VISIBILITY (dark/default + light)
+   ============================================ */
+
+.logo-asset-dark {
+  display: block;
+}
+
+.logo-asset-light {
+  display: none;
+}
+
+html.light .logo-asset-dark {
+  display: none;
+}
+
+html.light .logo-asset-light {
+  display: block;
+}
+
+/* ============================================
+   BUTTON UTILITIES
+   ============================================ */
+
+.near-btn-primary {
+  background: var(--near-mint);
+  color: var(--near-black);
+  font-weight: 600;
+  border-radius: 12px;
+  padding: 12px 24px;
+  transition: all 0.2s ease;
+  box-shadow: 0 0 20px var(--near-mint-soft);
+}
+
+.near-btn-primary:hover {
+  background: var(--near-mint-bright);
+  box-shadow: 0 0 30px var(--near-mint-glow);
+  transform: translateY(-1px);
+}
+
+.near-btn-primary:active {
+  transform: translateY(0);
+}
+
+.near-btn-secondary {
+  background: var(--near-elevated);
+  color: var(--near-text);
+  font-weight: 500;
+  border: 1px solid var(--near-border);
+  border-radius: 12px;
+  padding: 12px 24px;
+  transition: all 0.2s ease;
+}
+
+.near-btn-secondary:hover {
+  background: var(--near-border);
+  border-color: var(--near-mint);
+}
+
+/* ============================================
+   INPUT UTILITIES
+   ============================================ */
+
+.near-input {
+  background: var(--near-surface);
+  border: 1px solid var(--near-border);
+  border-radius: 12px;
+  padding: 12px 16px;
+  color: var(--near-text);
+  font-size: 1rem;
+  transition: all 0.2s ease;
+}
+
+.near-input::placeholder {
+  color: var(--near-text-muted);
+}
+
+.near-input:focus {
+  outline: none;
+  border-color: var(--near-mint);
+  box-shadow: 0 0 0 3px var(--near-mint-soft);
+}
+
+.near-input:hover:not(:focus) {
+  border-color: var(--near-border-light);
+}
+
+/* ============================================
+   TYPOGRAPHY UTILITIES
+   ============================================ */
+
+.near-heading {
+  color: var(--near-white);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.near-text-mint {
+  color: var(--near-mint);
+}
+
+.near-text-gradient {
+  background: linear-gradient(135deg, var(--near-mint) 0%, var(--near-mint-bright) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* ============================================
+   STATUS INDICATORS
+   ============================================ */
+
+.near-status-success {
+  color: var(--near-success);
+  background: rgba(0, 236, 151, 0.1);
+  border: 1px solid rgba(0, 236, 151, 0.3);
+}
+
+.near-status-error {
+  color: var(--near-error);
+  background: rgba(255, 71, 87, 0.1);
+  border: 1px solid rgba(255, 71, 87, 0.3);
+}
+
+.near-status-warning {
+  color: var(--near-warning);
+  background: rgba(255, 165, 2, 0.1);
+  border: 1px solid rgba(255, 165, 2, 0.3);
+}
+
+/* ============================================
+   TOOLTIP STYLES
+   ============================================ */
+
+.near-tooltip {
+  position: relative;
+}
+
+.near-tooltip::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%) translateY(-8px);
+  background: var(--near-elevated);
+  color: var(--near-text);
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 0.875rem;
+  white-space: nowrap;
+  opacity: 0;
+  visibility: hidden;
+  transition: all 0.2s ease;
+  border: 1px solid var(--near-border);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  z-index: 100;
+}
+
+.near-tooltip:hover::after {
+  opacity: 1;
+  visibility: visible;
+  transform: translateX(-50%) translateY(-4px);
+}
+
+/* ============================================
+   STEP INDICATOR
+   ============================================ */
+
+.near-step {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.near-step-number {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--near-mint);
+  color: var(--near-black);
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.near-step-number.completed {
+  background: var(--near-mint);
+}
+
+.near-step-number.pending {
+  background: var(--near-border);
+  color: var(--near-text-muted);
+}
+
+/* ============================================
+   PROGRESS BAR
+   ============================================ */
+
+.near-progress {
+  height: 8px;
+  background: var(--near-border);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.near-progress-bar {
+  height: 100%;
+  background: linear-gradient(90deg, var(--near-mint-dark) 0%, var(--near-mint) 100%);
+  border-radius: 4px;
+  transition: width 0.5s ease-out;
+  box-shadow: 0 0 10px var(--near-mint-glow);
+}
+
+/* ============================================
+   BADGE STYLES
+   ============================================ */
+
+.near-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 20px;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.near-badge-mint {
+  background: var(--near-mint-soft);
+  color: var(--near-mint);
+  border: 1px solid var(--near-mint);
+}
+
+.near-badge-gray {
+  background: rgba(163, 163, 163, 0.1);
+  color: var(--near-text-secondary);
+  border: 1px solid var(--near-border);
+}
+
+/* ============================================
+   RESPONSIVE UTILITIES
+   ============================================ */
+
+@media (max-width: 640px) {
+  html {
+    font-size: 15px;
+  }
+  
+  .near-card {
+    border-radius: 12px;
+  }
+}
+
+/* ============================================
+   SELECTION STYLES
+   ============================================ */
+
+::selection {
+  background: var(--near-mint);
+  color: var(--near-black);
+}
+
+::-moz-selection {
+  background: var(--near-mint);
+  color: var(--near-black);
 }
