@@ -64,7 +64,7 @@ jobs:
 
       - name: Clippy check (lib only)
         working-directory: contracts/near_splitter
-        run: cargo clippy --lib --target wasm32-unknown-unknown -- -D warnings
+        run: cargo clippy --lib -- -D warnings
 
   security-audit:
     name: Security Audit
