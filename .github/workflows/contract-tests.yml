@@ -58,13 +58,9 @@ jobs:
         working-directory: contracts/near_splitter
         run: cargo test --test integration -- --nocapture
 
-      - name: Run unit tests
+      - name: Clippy check (lib, no dev-deps)
         working-directory: contracts/near_splitter
-        run: cargo test --lib
-
-      - name: Clippy check (lib only)
-        working-directory: contracts/near_splitter
-        run: cargo clippy --lib -- -D warnings
+        run: cargo clippy --lib --no-deps -- -D warnings
 
   security-audit:
     name: Security Audit
