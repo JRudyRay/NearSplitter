@@ -63,9 +63,6 @@ jobs:
           pnpm build
         env:
           NODE_ENV: production
-          NEXT_PUBLIC_CONTRACT_ID: nearsplitter-fresh.testnet
-          NEXT_PUBLIC_NEAR_NETWORK: testnet
-          NEXT_PUBLIC_NEAR_RPC_URL: https://rpc.testnet.fastnear.com
       
       - name: Setup Pages
         uses: actions/configure-pages@v5
