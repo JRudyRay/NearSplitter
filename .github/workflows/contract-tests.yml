@@ -56,11 +56,11 @@ jobs:
 
       - name: Run integration tests
         working-directory: contracts/near_splitter
-        run: cargo test --test integration -- --nocapture
+        run: cargo test --test integration --target x86_64-unknown-linux-gnu -- --nocapture
 
       - name: Clippy check (lib, no dev-deps)
         working-directory: contracts/near_splitter
-        run: cargo clippy --lib --no-deps -- -D warnings
+        run: cargo clippy --lib --no-deps --target x86_64-unknown-linux-gnu -- -D warnings
 
   security-audit:
     name: Security Audit
