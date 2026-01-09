@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState, type ChangeEvent, type FormEvent } from 'react';
 import { Wallet, HelpCircle, Receipt, Users, DollarSign, TrendingUp, Copy, Check, ArrowRight } from 'lucide-react';
+import Link from 'next/link';
 import { useNear } from '@/lib/hooks/use-near';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -841,11 +842,13 @@ export default function HomePage() {
                 >
                   Connect wallet
                 </Button>
-                <a href="/help" className="inline-flex">
-                  <Button variant="secondary" size="lg" leftIcon={<HelpCircle className="h-5 w-5" />}>
-                    How it works
-                  </Button>
-                </a>
+                <Link
+                  href="/help/"
+                  className="inline-flex items-center justify-center gap-2 font-medium px-6 py-3 text-lg rounded-xl bg-muted hover:bg-muted/80 text-fg border border-border hover:border-brand-500/50 transition-all duration-200"
+                >
+                  <HelpCircle className="h-5 w-5 flex-shrink-0" />
+                  How it works
+                </Link>
               </div>
 
               <div className="grid gap-3 sm:grid-cols-3">

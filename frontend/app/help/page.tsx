@@ -1,9 +1,9 @@
 'use client';
 
 import React from 'react';
+import Link from 'next/link';
 import { CircleDot, Wallet, Receipt, CheckCircle2, Coins, Zap, Shield, ArrowLeft } from 'lucide-react';
 import { Logo } from '@/components/ui/logo';
-import { Button } from '@/components/ui/button';
 
 export default function HelpPage() {
   return (
@@ -12,11 +12,13 @@ export default function HelpPage() {
         {/* Header */}
         <header className="mb-10 flex items-center justify-between">
           <Logo size="md" />
-          <a href="/">
-            <Button variant="secondary" leftIcon={<ArrowLeft className="w-4 h-4" />}>
-              Back to App
-            </Button>
-          </a>
+          <Link
+            href="/"
+            className="inline-flex items-center justify-center gap-2 font-medium px-4 py-2.5 text-base rounded-xl bg-muted hover:bg-muted/80 text-fg border border-border hover:border-brand-500/50 transition-all duration-200"
+          >
+            <ArrowLeft className="w-4 h-4 flex-shrink-0" />
+            Back to App
+          </Link>
         </header>
 
         {/* Hero Section */}
