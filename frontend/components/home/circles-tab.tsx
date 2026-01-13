@@ -1,7 +1,7 @@
 'use client';
 
 import React, { type ChangeEvent, type FormEvent } from 'react';
-import { Eye, EyeOff, Info, PlusCircle, Users } from 'lucide-react';
+import { ChevronDown, Eye, EyeOff, Info, PlusCircle, Users } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 
@@ -46,24 +46,45 @@ export function CirclesTab({
   creating: boolean;
   joining: boolean;
 }) {
+  const [openPanel, setOpenPanel] = React.useState<'create' | 'join' | null>(null);
+
   return (
     <section
-      className={`grid gap-3 md:gap-3 md:grid-cols-2 ${!active ? 'hidden' : ''}`}
+      className={`grid gap-3 md:gap-3 md:grid-cols-2 items-start ${!active ? 'hidden' : ''}`}
       id="circles-panel"
       role="tabpanel"
       aria-labelledby="circles-tab"
     >
-      <article className="rounded-xl border border-border/60 bg-card/80 p-3 shadow-lg transition-all duration-300 shadow-near-glow-sm backdrop-blur-sm">
-        <header className="mb-3">
-          <h2 className="text-base sm:text-lg font-bold text-fg flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg bg-brand-500/10 flex items-center justify-center shadow-near-glow">
-              <PlusCircle className="w-4 h-4 text-brand-500" aria-hidden="true" />
+      <div
+        className="group rounded-xl border border-border/60 bg-card/80 p-3 shadow-lg transition-all duration-300 shadow-near-glow-sm backdrop-blur-sm"
+      >
+        <button
+          type="button"
+          className="w-full text-left cursor-pointer select-none rounded-xl hover:bg-muted/50 transition-colors duration-200"
+          onClick={() => setOpenPanel((prev) => (prev === 'create' ? null : 'create'))}
+          aria-label="Toggle create circle form"
+          aria-expanded={openPanel === 'create'}
+        >
+          <header className="flex items-start justify-between gap-3 p-1">
+            <div className="flex-1">
+              <h2 className="text-base sm:text-lg font-bold text-fg flex items-center gap-2">
+                <div className="w-8 h-8 rounded-lg bg-brand-500/10 flex items-center justify-center shadow-near-glow transition-transform duration-200 group-hover:scale-105">
+                  <PlusCircle className="w-4 h-4 text-brand-500" aria-hidden="true" />
+                </div>
+                Create Circle
+              </h2>
+              <p className="mt-1.5 text-sm text-muted-fg pl-1">Start a new expense group</p>
             </div>
-            Create Circle
-          </h2>
-          <p className="mt-1.5 text-sm text-muted-fg">Start a new expense group</p>
-        </header>
-        <form className="space-y-2.5" onSubmit={onCreateCircle}>
+            <div className={`mt-1.5 rounded-lg p-1.5 text-muted-fg bg-muted/50 transition-all duration-300 ${openPanel === 'create' ? 'rotate-180 bg-brand-500/20 text-brand-500' : ''}`}>
+              <ChevronDown className="h-7 w-7" aria-hidden="true" />
+            </div>
+          </header>
+        </button>
+
+        <form 
+          className={`space-y-2.5 overflow-hidden transition-all duration-300 ease-in-out ${openPanel === 'create' ? 'opacity-100 max-h-[500px] mt-3 pb-1' : 'opacity-0 max-h-0 invisible'}`} 
+          onSubmit={onCreateCircle}
+        >
           <div className="space-y-1.5">
             <label htmlFor="circle-name" className="text-sm font-semibold text-muted-fg block">
               Circle Name
@@ -136,19 +157,38 @@ export function CirclesTab({
             Create Circle
           </Button>
         </form>
-      </article>
+      </div>
 
-      <article className="rounded-xl border border-border/60 bg-card/80 p-3 shadow-lg transition-all duration-300 shadow-near-glow-sm backdrop-blur-sm">
-        <header className="mb-3">
-          <h2 className="text-base sm:text-lg font-bold text-fg flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg bg-brand-500/10 flex items-center justify-center shadow-near-glow">
-              <Users className="w-4 h-4 text-brand-500" aria-hidden="true" />
+      <div
+        className="group rounded-xl border border-border/60 bg-card/80 p-3 shadow-lg transition-all duration-300 shadow-near-glow-sm backdrop-blur-sm"
+      >
+        <button
+          type="button"
+          className="w-full text-left cursor-pointer select-none rounded-xl hover:bg-muted/50 transition-colors duration-200"
+          onClick={() => setOpenPanel((prev) => (prev === 'join' ? null : 'join'))}
+          aria-label="Toggle join circle form"
+          aria-expanded={openPanel === 'join'}
+        >
+          <header className="flex items-start justify-between gap-3 p-1">
+            <div className="flex-1">
+              <h2 className="text-base sm:text-lg font-bold text-fg flex items-center gap-2">
+                <div className="w-8 h-8 rounded-lg bg-brand-500/10 flex items-center justify-center shadow-near-glow transition-transform duration-200 group-hover:scale-105">
+                  <Users className="w-4 h-4 text-brand-500" aria-hidden="true" />
+                </div>
+                Join Existing Circle
+              </h2>
+              <p className="mt-1.5 text-sm text-muted-fg pl-1">Enter Circle ID to join</p>
             </div>
-            Join Existing Circle
-          </h2>
-          <p className="mt-1.5 text-sm text-muted-fg">Enter Circle ID to join</p>
-        </header>
-        <form className="space-y-2.5" onSubmit={onJoinCircle}>
+            <div className={`mt-1.5 rounded-lg p-1.5 text-muted-fg bg-muted/50 transition-all duration-300 ${openPanel === 'join' ? 'rotate-180 bg-brand-500/20 text-brand-500' : ''}`}>
+              <ChevronDown className="h-7 w-7" aria-hidden="true" />
+            </div>
+          </header>
+        </button>
+
+        <form 
+          className={`space-y-2.5 overflow-hidden transition-all duration-300 ease-in-out ${openPanel === 'join' ? 'opacity-100 max-h-[500px] mt-3 pb-1' : 'opacity-0 max-h-0 invisible'}`} 
+          onSubmit={onJoinCircle}
+        >
           <div className="space-y-1.5">
             <label htmlFor="join-circle-id" className="text-sm font-semibold text-muted-fg block">
               Circle ID
@@ -220,7 +260,7 @@ export function CirclesTab({
             </p>
           </div>
         </form>
-      </article>
+      </div>
     </section>
   );
 }

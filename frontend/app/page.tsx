@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState, type ChangeEvent, type FormEvent } from 'react';
-import { Wallet, HelpCircle, Receipt, Users, DollarSign, TrendingUp, Copy, Check, ArrowRight } from 'lucide-react';
+import { Wallet, HelpCircle, Receipt, Users, DollarSign, TrendingUp, Copy, Check, ArrowRight, Eye, EyeOff } from 'lucide-react';
 import Link from 'next/link';
 import { useNear } from '@/lib/hooks/use-near';
 import { Button } from '@/components/ui/button';
@@ -71,6 +71,10 @@ export default function HomePage() {
   const [selectedParticipants, setSelectedParticipants] = useState<Record<string, boolean>>({});
   const [settlementAmount, setSettlementAmount] = useState('');
   const [settlementRecipient, setSettlementRecipient] = useState('');
+  
+  // Password display state
+  const [showPassword, setShowPassword] = useState(false);
+  const [passwordCopied, setPasswordCopied] = useState(false);
 
   // Validation errors
   const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
@@ -537,6 +541,17 @@ export default function HomePage() {
             
             // Immediately track and select the new circle
             if (newCircleId) {
+              // Store password in localStorage for the owner to recall it later
+              if (sanitizedPassword) {
+                try {
+                  const stored = localStorage.getItem('circle_passwords') ? JSON.parse(localStorage.getItem('circle_passwords')!) : {};
+                  stored[newCircleId] = sanitizedPassword;
+                  localStorage.setItem('circle_passwords', JSON.stringify(stored));
+                } catch (e) {
+                  console.warn('Could not store circle password:', e);
+                }
+              }
+              
               setTrackedCircleIds((prev: string[]) => uniq([...prev, newCircleId!]));
               setSelectedCircleId(newCircleId);
               
@@ -1076,150 +1091,287 @@ export default function HomePage() {
             <div className="space-y-3">
               <article className="rounded-xl border border-border/50 bg-gradient-to-br from-card to-muted p-3 shadow-xl hover:shadow-xl transition-all duration-300 backdrop-blur-sm">
                 <header className="flex flex-col gap-3">
-                  <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2 mb-1.5">
-                        <div className={`w-9 h-9 rounded-lg bg-brand-500 flex items-center justify-center shadow-near-glow`}>
-                          <Users className="w-4 h-4 text-black" aria-hidden="true" />
+                  <div className="grid gap-3 lg:grid-cols-[1fr_320px] lg:items-start">
+                    <div className="space-y-3">
+                      <div>
+                        <div className="flex items-center gap-2 mb-1.5">
+                          <div className={`w-9 h-9 rounded-lg bg-brand-500 flex items-center justify-center shadow-near-glow`}>
+                            <Users className="w-4 h-4 text-black" aria-hidden="true" />
+                          </div>
+                          <h2 className="text-base sm:text-lg font-bold text-fg">{selectedCircle.name}</h2>
                         </div>
-                        <h2 className="text-base sm:text-lg font-bold text-fg">{selectedCircle.name}</h2>
+                        <dl className="flex flex-col gap-1 text-sm text-muted-fg">
+                          <div className="flex items-center gap-2">
+                            <dt className="sr-only">Owner</dt>
+                            <svg className="w-4 h-4 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
+                              <path fillRule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clipRule="evenodd" />
+                            </svg>
+                            <dd className="text-fg break-all font-medium">
+                              {selectedCircle.owner === near.accountId ? 'You (Owner)' : selectedCircle.owner}
+                            </dd>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <dt className="sr-only">Members</dt>
+                            <svg className="w-4 h-4 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
+                              <path d="M9 6a3 3 0 11-6 0 3 3 0 016 0zM17 6a3 3 0 11-6 0 3 3 0 016 0zM12.93 17c.046-.327.07-.66.07-1a6.97 6.97 0 00-1.5-4.33A5 5 0 0119 16v1h-6.07zM6 11a5 5 0 015 5v1H1v-1a5 5 0 015-5z" />
+                            </svg>
+                            <dd>{selectedCircle.members.length} member{selectedCircle.members.length === 1 ? '' : 's'}</dd>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <dt className="sr-only">Created</dt>
+                            <svg className="w-4 h-4 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
+                              <path fillRule="evenodd" d="M6 2a1 1 0 00-1 1v1H4a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V6a2 2 0 00-2-2h-1V3a1 1 0 10-2 0v1H7V3a1 1 0 00-1-1zm0 5a1 1 0 000 2h8a1 1 0 100-2H6z" clipRule="evenodd" />
+                            </svg>
+                            <dd>{formatTimestamp(selectedCircle.created_ms)}</dd>
+                          </div>
+                          {/* Circle Status Badges */}
+                          <div className="flex items-center gap-2 flex-wrap mt-1">
+                            {selectedCircle.locked && (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-yellow-500/20 text-yellow-400 border border-yellow-500/30">
+                                <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                                  <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" />
+                                </svg>
+                                Settlement in Progress
+                              </span>
+                            )}
+                            {!selectedCircle.membership_open && !selectedCircle.locked && (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-muted-fg/20 text-muted-fg border border-muted-fg/30">
+                                <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                                  <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" />
+                                </svg>
+                                Closed to New Members
+                              </span>
+                            )}
+                            {selectedCircle.membership_open && !selectedCircle.locked && (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-green-500/20 text-green-400 border border-green-500/30">
+                                <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                                </svg>
+                                Open for Members
+                              </span>
+                            )}
+                          </div>
+                        </dl>
                       </div>
-                      <dl className="flex flex-col gap-1 text-sm text-muted-fg">
-                        <div className="flex items-center gap-2">
-                          <dt className="sr-only">Owner</dt>
-                          <svg className="w-4 h-4 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
-                            <path fillRule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clipRule="evenodd" />
-                          </svg>
-                          <dd className="text-fg break-all font-medium">
-                            {selectedCircle.owner === near.accountId ? 'You (Owner)' : selectedCircle.owner}
-                          </dd>
+
+                      {/* Owner Controls - Membership Toggle */}
+                      {selectedCircle.owner === near.accountId && !selectedCircle.locked && (
+                        <div className={`rounded-lg border border-border/50 bg-card/50 p-2.5 shadow-near-glow-sm backdrop-blur-sm`}>
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <p className="text-sm font-semibold text-fg">Membership</p>
+                              <p className="text-xs text-muted-fg">
+                                {selectedCircle.membership_open ? 'New members can join' : 'Circle is closed to new members'}
+                              </p>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                if (!near.accountId || !near.callFunction) return;
+                                try {
+                                  toast.info('Check your wallet to approve.', { title: 'Update membership', durationMs: 6_000 });
+                                  await near.callFunction({
+                                    contractId,
+                                    method: 'set_membership_open',
+                                    args: { circle_id: selectedCircle.id, open: !selectedCircle.membership_open },
+                                    gas: GAS_150_TGAS,
+                                    deposit: '0',
+                                  });
+                                  toast.success(selectedCircle.membership_open ? 'Circle closed to new members' : 'Circle opened for new members', { title: 'Updated' });
+                                  // Refresh circle data
+                                  if (near.viewFunction) {
+                                    const updated = await getCircle(selectedCircle.id, near.viewFunction);
+                                    setCircleMap(prev => ({ ...prev, [updated.id]: updated }));
+                                  }
+                                } catch (err) {
+                                  toast.error(`Failed to update membership: ${String(err)}`, { title: 'Update failed' });
+                                }
+                              }}
+                              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-brand-500/20 ${
+                                selectedCircle.membership_open ? 'bg-brand-500' : 'bg-muted-fg'
+                              }`}
+                              aria-pressed={selectedCircle.membership_open}
+                              aria-label={selectedCircle.membership_open ? 'Close circle to new members' : 'Open circle to new members'}
+                            >
+                              <span
+                                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                                  selectedCircle.membership_open ? 'translate-x-6' : 'translate-x-1'
+                                }`}
+                              />
+                            </button>
+                          </div>
                         </div>
-                        <div className="flex items-center gap-2">
-                          <dt className="sr-only">Members</dt>
-                          <svg className="w-4 h-4 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
-                            <path d="M9 6a3 3 0 11-6 0 3 3 0 016 0zM17 6a3 3 0 11-6 0 3 3 0 016 0zM12.93 17c.046-.327.07-.66.07-1a6.97 6.97 0 00-1.5-4.33A5 5 0 0119 16v1h-6.07zM6 11a5 5 0 015 5v1H1v-1a5 5 0 015-5z" />
-                          </svg>
-                          <dd>{selectedCircle.members.length} member{selectedCircle.members.length === 1 ? '' : 's'}</dd>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <dt className="sr-only">Created</dt>
-                          <svg className="w-4 h-4 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
-                            <path fillRule="evenodd" d="M6 2a1 1 0 00-1 1v1H4a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V6a2 2 0 00-2-2h-1V3a1 1 0 10-2 0v1H7V3a1 1 0 00-1-1zm0 5a1 1 0 000 2h8a1 1 0 100-2H6z" clipRule="evenodd" />
-                          </svg>
-                          <dd>{formatTimestamp(selectedCircle.created_ms)}</dd>
-                        </div>
-                        {/* Circle Status Badges */}
-                        <div className="flex items-center gap-2 flex-wrap mt-1">
-                          {selectedCircle.locked && (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-yellow-500/20 text-yellow-400 border border-yellow-500/30">
-                              <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
-                                <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" />
-                              </svg>
-                              Settlement in Progress
-                            </span>
-                          )}
-                          {!selectedCircle.membership_open && !selectedCircle.locked && (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-muted-fg/20 text-muted-fg border border-muted-fg/30">
-                              <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
-                                <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" />
-                              </svg>
-                              Closed to New Members
-                            </span>
-                          )}
-                          {selectedCircle.membership_open && !selectedCircle.locked && (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-green-500/20 text-green-400 border border-green-500/30">
-                              <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
-                                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                              </svg>
-                              Open for Members
-                            </span>
-                          )}
-                        </div>
-                      </dl>
+                      )}
                     </div>
-                  </div>
-                  
-                  {/* Owner Controls - Membership Toggle */}
-                  {selectedCircle.owner === near.accountId && !selectedCircle.locked && (
-                    <div className={`rounded-lg border border-border/50 bg-card/50 p-2.5 shadow-near-glow-sm backdrop-blur-sm`}>
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <p className="text-sm font-semibold text-fg">Membership</p>
-                          <p className="text-xs text-muted-fg">
-                            {selectedCircle.membership_open ? 'New members can join' : 'Circle is closed to new members'}
+
+                    <div className="space-y-3">
+                      {/* Circles + Expenses: Circle ID for sharing + Circle Password (for owner only) */}
+                      {activeTab !== 'settlements' && (
+                        <div className="space-y-2.5">
+                          <div className={`rounded-lg border border-border/50 bg-card/50 p-2.5 shadow-near-glow-sm backdrop-blur-sm`}>
+                            <label htmlFor="circle-id-display" className="text-xs font-semibold text-muted-fg mb-1.5 block flex items-center gap-1.5">
+                              <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
+                                <path fillRule="evenodd" d="M12.586 4.586a2 2 0 112.828 2.828l-3 3a2 2 0 01-2.828 0 1 1 0 00-1.414 1.414 4 4 0 005.656 0l3-3a4 4 0 00-5.656-5.656l-1.5 1.5a1 1 0 101.414 1.414l1.5-1.5zm-5 5a2 2 0 012.828 0 1 1 0 101.414-1.414 4 4 0 00-5.656 0l-3 3a4 4 0 105.656 5.656l1.5-1.5a1 1 0 10-1.414-1.414l-1.5 1.5a2 2 0 11-2.828-2.828l3-3z" clipRule="evenodd" />
+                              </svg>
+                              Share Circle ID
+                            </label>
+                            <div className="flex items-center gap-2">
+                              <code id="circle-id-display" className={`flex-1 text-xs text-brand-500 font-mono break-all bg-muted/30 px-2 py-1.5 rounded-lg border border-border`}>
+                                {selectedCircle.id}
+                              </code>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  copyCircleId(selectedCircle.id);
+                                }}
+                                className={`text-xs px-2.5 py-1.5 rounded-lg bg-brand-500 hover:opacity-90 text-black font-semibold transition-all duration-200 flex-shrink-0 flex items-center gap-1.5 shadow-near-glow hover:scale-105`}
+                                aria-label="Copy circle ID to clipboard"
+                              >
+                                {copiedCircleId ? (
+                                  <>
+                                    <Check className="w-3 h-3" aria-hidden="true" />
+                                    Copied
+                                  </>
+                                ) : (
+                                  <>
+                                    <Copy className="w-3 h-3" aria-hidden="true" />
+                                    Copy
+                                  </>
+                                )}
+                              </button>
+                            </div>
+                          </div>
+                          
+                          {/* Circle Password - only visible to owner */}
+                          {selectedCircle.owner === near.accountId && (() => {
+                            const stored = typeof window !== 'undefined' ? localStorage.getItem('circle_passwords') : null;
+                            const passwords = stored ? JSON.parse(stored) : {};
+                            const circlePassword = passwords[selectedCircle.id];
+                            
+                            return circlePassword ? (
+                              <div className={`rounded-lg border border-amber-500/50 bg-amber-500/10 p-2.5 shadow-near-glow-sm backdrop-blur-sm`}>
+                                <label htmlFor="circle-password-display" className="text-xs font-semibold text-amber-600 dark:text-amber-400 mb-1.5 block flex items-center gap-1.5">
+                                  <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
+                                    <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" />
+                                  </svg>
+                                  Circle Password (Owner Only)
+                                </label>
+                                <div className="flex items-center gap-2">
+                                  <code id="circle-password-display" className={`flex-1 text-xs font-mono break-all bg-muted/30 px-2 py-1.5 rounded-lg border border-border transition-all ${showPassword ? 'text-amber-600 dark:text-amber-400' : 'text-muted-fg'}`}>
+                                    {showPassword ? circlePassword : '•'.repeat(Math.min(circlePassword.length, 12))}
+                                  </code>
+                                  <button
+                                    type="button"
+                                    onClick={() => setShowPassword(!showPassword)}
+                                    className="text-xs px-2.5 py-1.5 rounded-lg bg-muted hover:bg-border text-fg font-semibold transition-all flex-shrink-0 flex items-center gap-1.5"
+                                    aria-label={showPassword ? 'Hide password' : 'Show password'}
+                                  >
+                                    {showPassword ? (
+                                      <EyeOff className="w-3 h-3" aria-hidden="true" />
+                                    ) : (
+                                      <Eye className="w-3 h-3" aria-hidden="true" />
+                                    )}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      navigator.clipboard.writeText(circlePassword);
+                                      setPasswordCopied(true);
+                                      setTimeout(() => setPasswordCopied(false), 2000);
+                                    }}
+                                    className={`text-xs px-2.5 py-1.5 rounded-lg text-black font-semibold transition-all flex-shrink-0 flex items-center gap-1.5 shadow-near-glow hover:scale-105 ${
+                                      passwordCopied ? 'bg-brand-500' : 'bg-amber-500 hover:bg-amber-600'
+                                    }`}
+                                    aria-label="Copy password to clipboard"
+                                  >
+                                    {passwordCopied ? (
+                                      <>
+                                        <Check className="w-3 h-3" aria-hidden="true" />
+                                        Copied
+                                      </>
+                                    ) : (
+                                      <>
+                                        <Copy className="w-3 h-3" aria-hidden="true" />
+                                        Copy
+                                      </>
+                                    )}
+                                  </button>
+                                </div>
+                              </div>
+                            ) : null;
+                          })()}
+                        </div>
+                      )}
+
+                      {/* Settle: show balances on the right (no Share Circle ID) */}
+                      {activeTab === 'settlements' && (
+                        <article className={`rounded-lg border border-border/50 bg-card/50 p-2.5 shadow-near-glow-sm backdrop-blur-sm`}>
+                          <header className="flex items-center gap-2 mb-2">
+                            <div className={`rounded-lg bg-brand-500/20 p-2 shadow-near-glow-sm`}>
+                              <TrendingUp className={`h-4 w-4 text-brand-500`} aria-hidden="true" />
+                            </div>
+                            <div>
+                              <h3 className="text-sm font-bold text-fg">Balances</h3>
+                              <p className="text-xs text-muted-fg">
+                                {circleBalances.data?.length || 0} member{(circleBalances.data?.length || 0) === 1 ? '' : 's'}
+                              </p>
+                            </div>
+                          </header>
+                          <p className="text-xs text-muted-fg mb-2 flex items-center gap-1.5">
+                            <svg className="w-3 h-3 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
+                              <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+                            </svg>
+                            Positive = owed, Negative = owes
                           </p>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={async () => {
-                            if (!near.accountId || !near.callFunction) return;
-                            try {
-                              toast.info('Check your wallet to approve.', { title: 'Update membership', durationMs: 6_000 });
-                              await near.callFunction({
-                                contractId,
-                                method: 'set_membership_open',
-                                args: { circle_id: selectedCircle.id, open: !selectedCircle.membership_open },
-                                gas: GAS_150_TGAS,
-                                deposit: '0',
-                              });
-                              toast.success(selectedCircle.membership_open ? 'Circle closed to new members' : 'Circle opened for new members', { title: 'Updated' });
-                              // Refresh circle data
-                              if (near.viewFunction) {
-                                const updated = await getCircle(selectedCircle.id, near.viewFunction);
-                                setCircleMap(prev => ({ ...prev, [updated.id]: updated }));
-                              }
-                            } catch (err) {
-                              toast.error(`Failed to update membership: ${String(err)}`, { title: 'Update failed' });
-                            }
-                          }}
-                          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-brand-500/20 ${
-                            selectedCircle.membership_open ? 'bg-brand-500' : 'bg-muted-fg'
-                          }`}
-                          aria-pressed={selectedCircle.membership_open}
-                          aria-label={selectedCircle.membership_open ? 'Close circle to new members' : 'Open circle to new members'}
-                        >
-                          <span
-                            className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                              selectedCircle.membership_open ? 'translate-x-6' : 'translate-x-1'
-                            }`}
-                          />
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                  
-                  {/* Circle ID for sharing */}
-                  <div className={`rounded-lg border border-border/50 bg-card/50 p-2.5 shadow-near-glow-sm backdrop-blur-sm`}>
-                    <label htmlFor="circle-id-display" className="text-xs font-semibold text-muted-fg mb-1.5 block flex items-center gap-1.5">
-                      <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
-                        <path fillRule="evenodd" d="M12.586 4.586a2 2 0 112.828 2.828l-3 3a2 2 0 01-2.828 0 1 1 0 00-1.414 1.414 4 4 0 005.656 0l3-3a4 4 0 00-5.656-5.656l-1.5 1.5a1 1 0 101.414 1.414l1.5-1.5zm-5 5a2 2 0 012.828 0 1 1 0 101.414-1.414 4 4 0 00-5.656 0l-3 3a4 4 0 105.656 5.656l1.5-1.5a1 1 0 10-1.414-1.414l-1.5 1.5a2 2 0 11-2.828-2.828l3-3z" clipRule="evenodd" />
-                      </svg>
-                      Share Circle ID
-                    </label>
-                    <div className="flex items-center gap-2">
-                      <code id="circle-id-display" className={`flex-1 text-xs text-brand-500 font-mono break-all bg-muted/30 px-2 py-1.5 rounded-lg border border-border`}>
-                        {selectedCircle.id}
-                      </code>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          copyCircleId(selectedCircle.id);
-                        }}
-                        className={`text-xs px-2.5 py-1.5 rounded-lg bg-brand-500 hover:opacity-90 text-black font-semibold transition-all duration-200 flex-shrink-0 flex items-center gap-1.5 shadow-near-glow hover:scale-105`}
-                        aria-label="Copy circle ID to clipboard"
-                      >
-                        {copiedCircleId ? (
-                          <>
-                            <Check className="w-3 h-3" aria-hidden="true" />
-                            Copied
-                          </>
-                        ) : (
-                          <>
-                            <Copy className="w-3 h-3" aria-hidden="true" />
-                            Copy
-                          </>
-                        )}
-                      </button>
+                          <ul className="space-y-1.5 max-h-64 overflow-auto pr-1" role="list">
+                            {circleBalances.data ? (
+                              [...circleBalances.data]
+                                .sort((a, b) => {
+                                  // Put current user first
+                                  if (a.account_id === near.accountId) return -1;
+                                  if (b.account_id === near.accountId) return 1;
+                                  // Then sort by magnitude (who is owed/owes the most)
+                                  return Math.abs(Number(b.net)) - Math.abs(Number(a.net));
+                                })
+                                .map((balance: BalanceView) => (
+                              <li
+                                key={balance.account_id}
+                                className={`flex items-center justify-between gap-3 rounded-lg px-3 py-2 border transition-all duration-200 backdrop-blur-sm ${
+                                  balance.account_id === near.accountId
+                                    ? 'bg-brand-500/10 border-brand-500/50 shadow-sm'
+                                    : 'bg-gradient-to-r from-muted/50 to-card/50 border-border/50 hover:border-border hover:shadow-md'
+                                }`}
+                              >
+                                <div className="flex items-center gap-2 flex-1 min-w-0">
+                                  <div className={`w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 ${
+                                    BigInt(balance.net) >= 0n ? 'bg-brand-500/10' : 'bg-rose-500/10'
+                                  }`}>
+                                    {BigInt(balance.net) === 0n ? (
+                                      <Check className="w-3.5 h-3.5 text-muted-fg" />
+                                    ) : (
+                                      <svg className={`w-3.5 h-3.5 ${BigInt(balance.net) >= 0n ? 'text-brand-500' : 'text-rose-400'}`} fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
+                                        <path fillRule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clipRule="evenodd" />
+                                      </svg>
+                                    )}
+                                  </div>
+                                  <span className={`text-sm text-fg font-medium truncate ${balance.account_id === near.accountId ? 'font-bold' : ''}`}>
+                                    {balance.account_id === near.accountId ? 'You' : balance.account_id}
+                                  </span>
+                                </div>
+                                <span
+                                  className={`font-bold text-sm whitespace-nowrap ${
+                                    BigInt(balance.net) > 0n ? 'text-brand-500' : 
+                                    BigInt(balance.net) < 0n ? 'text-rose-400' : 'text-muted-fg'
+                                  }`}
+                                  aria-label={`Balance: ${BigInt(balance.net) >= 0n ? 'owed' : 'owes'} ${formatNearAmount(BigInt(balance.net).toString())} NEAR`}
+                                >
+                                  {BigInt(balance.net) > 0n ? '+' : ''}{formatNearAmount(BigInt(balance.net).toString())} Ⓝ
+                                </span>
+                              </li>
+                            ))) : <p className="text-xs text-muted-fg py-3 text-center">No balances yet</p>}
+                          </ul>
+                        </article>
+                      )}
                     </div>
                   </div>
                 </header>
@@ -1312,73 +1464,11 @@ export default function HomePage() {
                   </div>
                 )}
 
-                {/* SETTLEMENTS TAB: Settle Payment Form */}
-                {activeTab === 'settlements' && (
-                  <div className="mt-2">
-                    <form onSubmit={handlePayNative} className={`space-y-2.5 rounded-xl border border-border/50 bg-gradient-to-br from-muted/60 to-card/60 p-2.5 shadow-xl hover:shadow-xl transition-all duration-300 shadow-near-glow-sm backdrop-blur-sm`}>
-                    <header className="flex items-center gap-2">
-                      <div className={`rounded-lg bg-brand-500/20 p-2 shadow-near-glow-sm`}>
-                        <DollarSign className={`h-4 w-4 text-brand-500`} aria-hidden="true" />
-                      </div>
-                      <h3 className="text-sm sm:text-base font-bold text-fg">Settle Payment</h3>
-                    </header>
-                    <div className="space-y-1.5">
-                      <label htmlFor="settlement-recipient" className="text-sm font-semibold text-fg block">
-                        Pay to
-                      </label>
-                      <select
-                        id="settlement-recipient"
-                        className={`w-full rounded-lg border border-border bg-card/50 px-3 py-2 text-sm text-fg focus:border-brand-500 focus:ring-brand-500/20 h-9 transition-all duration-200 hover:border-muted-fg`}
-                        value={settlementRecipient}
-                        onChange={(event: ChangeEvent<HTMLSelectElement>) =>
-                          setSettlementRecipient(event.target.value)
-                        }
-                        aria-required="true"
-                      >
-                        <option value="">Select member</option>
-                        {selectedCircle.members
-                          .filter((member: string) => member !== near.accountId)
-                          .map((member: string) => (
-                            <option key={member} value={member}>
-                              {member}
-                            </option>
-                          ))}
-                      </select>
-                    </div>
-                    <div className="space-y-1.5">
-                      <label htmlFor="settlement-amount" className="text-sm font-semibold text-fg block">
-                        Amount (NEAR)
-                      </label>
-                      <Input
-                        id="settlement-amount"
-                        value={settlementAmount}
-                        onChange={(event: ChangeEvent<HTMLInputElement>) => setSettlementAmount(event.target.value)}
-                        placeholder="1.5"
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        className={`bg-card/50 border-border focus:border-brand-500 focus:ring-brand-500/20 text-sm h-9 transition-all duration-200 hover:border-muted-fg`}
-                        required
-                        aria-required="true"
-                      />
-                    </div>
-                    <Button
-                      type="submit"
-                      loading={payNativeMutation.loading}
-                      disabled={!settlementRecipient || !settlementAmount}
-                      className={`w-full bg-brand-500 hover:bg-brand-600 text-black font-bold text-sm h-9 shadow-near-glow hover:scale-[1.02] transition-all duration-200 shadow-lg`}
-                      aria-label="Send payment"
-                    >
-                      Send Payment
-                    </Button>
-                  </form>
-                  </div>
-                )}
               </article>
 
               {/* SETTLEMENTS TAB ONLY: Ledger Confirmation Section */}
               {activeTab === 'settlements' && (
-              <article className={`rounded-xl border border-brand-700 bg-gradient-to-br from-brand-950 to-card p-2.5 shadow-xl hover:shadow-xl transition-all duration-300 backdrop-blur-sm`}>
+              <article className={`rounded-xl border border-border/50 bg-gradient-to-br from-card to-muted p-2.5 shadow-xl hover:shadow-xl transition-all duration-300 shadow-near-glow-sm backdrop-blur-sm`}>
                 <header className="flex items-start gap-2.5 mb-3">
                   <div className={`rounded-lg bg-brand-500/20 p-2 flex-shrink-0 shadow-near-glow`}>
                     <svg className={`h-4 w-4 text-brand-500`} fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
@@ -1593,58 +1683,75 @@ export default function HomePage() {
               </article>
               )}
 
-              {/* SETTLEMENTS TAB ONLY: Balances & Settlement Suggestions */}
+              {/* SETTLEMENTS TAB ONLY: Settle Payment (shown under Confirm Expenses) */}
               {activeTab === 'settlements' && (
-              <section className={`grid gap-2.5 lg:grid-cols-2`} aria-label="Balances and settlements">
-                <article className={`rounded-xl border border-border/50 bg-gradient-to-br from-card to-muted p-2.5 shadow-xl hover:shadow-xl transition-all duration-300 shadow-near-glow-sm backdrop-blur-sm`}>
-                  <header className="flex items-center gap-2 mb-2">
-                    <div className={`rounded-lg bg-brand-500/20 p-2 shadow-near-glow-sm`}>
-                      <TrendingUp className={`h-4 w-4 text-brand-500`} aria-hidden="true" />
-                    </div>
-                    <div>
-                      <h3 className="text-sm sm:text-base font-bold text-fg">Balances</h3>
-                      <p className="text-xs text-muted-fg">
-                        {circleBalances.data?.length || 0} member{(circleBalances.data?.length || 0) === 1 ? '' : 's'}
-                      </p>
-                    </div>
+                <div className="mt-2">
+                  <header className="mb-2 px-1">
+                    <h3 className="text-sm font-bold text-fg flex items-center gap-2">
+                      <div className="w-1.5 h-1.5 rounded-full bg-brand-500 animate-pulse"></div>
+                      Manual Settlement Payment
+                    </h3>
                   </header>
-                  <p className="text-xs text-muted-fg mb-2 flex items-center gap-1.5">
-                    <svg className="w-3 h-3 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
-                      <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
-                    </svg>
-                    Positive = owed, Negative = owes
-                  </p>
-                  <ul className="space-y-1.5" role="list">
-                    {circleBalances.data?.map((balance: BalanceView) => (
-                      <li
-                        key={balance.account_id}
-                        className="flex items-center justify-between gap-3 rounded-lg bg-gradient-to-r from-muted/50 to-card/50 px-3 py-2 border border-border/50 hover:border-border transition-all duration-200 hover:shadow-md backdrop-blur-sm"
-                      >
-                        <div className="flex items-center gap-2 flex-1 min-w-0">
-                          <div className={`w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 ${
-                            BigInt(balance.net) >= 0n ? 'bg-brand-500/10' : 'bg-rose-500/20'
-                          }`}>
-                            <svg className={`w-3.5 h-3.5 ${BigInt(balance.net) >= 0n ? 'text-brand-500' : 'text-rose-400'}`} fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
-                              <path fillRule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clipRule="evenodd" />
-                            </svg>
-                          </div>
-                          <span className={`text-sm text-fg font-medium truncate ${balance.account_id === near.accountId ? 'font-semibold' : ''}`}>
-                            {balance.account_id === near.accountId ? 'You' : balance.account_id}
-                          </span>
-                        </div>
-                        <span
-                          className={`font-bold text-sm whitespace-nowrap ${
-                            BigInt(balance.net) >= 0n ? 'text-brand-500' : 'text-rose-400'
-                          }`}
-                          aria-label={`Balance: ${BigInt(balance.net) >= 0n ? 'owed' : 'owes'} ${formatNearAmount(BigInt(balance.net).toString())} NEAR`}
+                  <form onSubmit={handlePayNative} className={`space-y-3 rounded-xl border border-border/50 bg-gradient-to-br from-muted/60 to-card/60 p-3 shadow-xl hover:shadow-xl transition-all duration-300 shadow-near-glow-sm backdrop-blur-sm`}>
+                    <div className="grid grid-cols-[1fr_120px] gap-2 items-start">
+                      <div className="space-y-1.5">
+                        <label htmlFor="settlement-recipient" className="text-xs font-semibold text-fg block">
+                          Pay To
+                        </label>
+                        <select
+                          id="settlement-recipient"
+                          className={`w-full rounded-lg border border-border bg-card/60 px-2.5 py-2 text-sm text-fg focus:border-brand-500 focus:ring-1 focus:ring-brand-500/20 h-9 transition-all duration-200 hover:border-muted-fg`}
+                          value={settlementRecipient}
+                          onChange={(event: ChangeEvent<HTMLSelectElement>) =>
+                            setSettlementRecipient(event.target.value)
+                          }
+                          aria-required="true"
                         >
-                          {BigInt(balance.net) >= 0n ? '+' : ''}{formatNearAmount(BigInt(balance.net).toString())} Ⓝ
-                        </span>
-                      </li>
-                    )) || <p className="text-xs text-muted-fg py-3 text-center">No balances yet</p>}
-                  </ul>
-                </article>
+                          <option value="">Select recipient...</option>
+                          {selectedCircle.members
+                            .filter((member: string) => member !== near.accountId)
+                            .map((member: string) => (
+                              <option key={member} value={member}>
+                                {member}
+                              </option>
+                            ))}
+                        </select>
+                      </div>
+                      <div className="space-y-1.5">
+                        <label htmlFor="settlement-amount" className="text-xs font-semibold text-fg block">
+                          Amount (Ⓝ)
+                        </label>
+                        <Input
+                          id="settlement-amount"
+                          value={settlementAmount}
+                          onChange={(event: ChangeEvent<HTMLInputElement>) => setSettlementAmount(event.target.value)}
+                          placeholder="0.0"
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          className={`bg-card/60 border-border focus:border-brand-500 focus:ring-brand-500/20 text-sm h-9 transition-all duration-200 hover:border-muted-fg`}
+                          required
+                          aria-required="true"
+                        />
+                      </div>
+                    </div>
+                    <Button
+                      type="submit"
+                      loading={payNativeMutation.loading}
+                      disabled={!settlementRecipient || !settlementAmount}
+                      className={`w-full bg-brand-500 hover:bg-brand-600 text-black font-bold text-sm h-9 shadow-near-glow hover:scale-[1.02] transition-all duration-200 shadow-lg flex items-center justify-center gap-2`}
+                      aria-label="Send payment"
+                    >
+                      <DollarSign className="w-3.5 h-3.5" />
+                      Send Payment
+                    </Button>
+                  </form>
+                </div>
+              )}
 
+              {/* SETTLEMENTS TAB ONLY: Settlement Suggestions */}
+              {activeTab === 'settlements' && (
+              <section className={`grid gap-2.5 lg:grid-cols-1`} aria-label="Settlement suggestions">
                 <article className={`rounded-xl border border-border/50 bg-gradient-to-br from-card to-muted p-2.5 shadow-xl hover:shadow-xl transition-all duration-300 shadow-near-glow-sm backdrop-blur-sm`}>
                   <header className="flex items-center gap-2 mb-2">
                     <div className={`rounded-lg bg-brand-500/20 p-2 shadow-near-glow-sm`}>
