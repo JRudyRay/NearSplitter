@@ -25,6 +25,8 @@ export function CirclesTab({
   onJoinCircle,
   creating,
   joining,
+  openPanel,
+  setOpenPanel,
 }: {
   active: boolean;
   canSubmit: boolean;
@@ -45,8 +47,9 @@ export function CirclesTab({
   onJoinCircle: (e: FormEvent<HTMLFormElement>) => void;
   creating: boolean;
   joining: boolean;
+  openPanel: 'create' | 'join' | null;
+  setOpenPanel: (v: 'create' | 'join' | null) => void;
 }) {
-  const [openPanel, setOpenPanel] = React.useState<'create' | 'join' | null>(null);
 
   return (
     <section
@@ -61,7 +64,7 @@ export function CirclesTab({
         <button
           type="button"
           className="w-full text-left cursor-pointer select-none rounded-xl hover:bg-muted/50 transition-colors duration-200"
-          onClick={() => setOpenPanel((prev) => (prev === 'create' ? null : 'create'))}
+          onClick={() => setOpenPanel(openPanel === 'create' ? null : 'create')}
           aria-label="Toggle create circle form"
           aria-expanded={openPanel === 'create'}
         >
@@ -165,7 +168,7 @@ export function CirclesTab({
         <button
           type="button"
           className="w-full text-left cursor-pointer select-none rounded-xl hover:bg-muted/50 transition-colors duration-200"
-          onClick={() => setOpenPanel((prev) => (prev === 'join' ? null : 'join'))}
+          onClick={() => setOpenPanel(openPanel === 'join' ? null : 'join')}
           aria-label="Toggle join circle form"
           aria-expanded={openPanel === 'join'}
         >

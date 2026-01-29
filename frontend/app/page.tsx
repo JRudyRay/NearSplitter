@@ -83,6 +83,9 @@ export default function HomePage() {
   const [showPassword, setShowPassword] = useState(false);
   const [passwordCopied, setPasswordCopied] = useState(false);
 
+  // Circle form panel state (lifted from CirclesTab for collapse after success)
+  const [circleFormPanel, setCircleFormPanel] = useState<'create' | 'join' | null>(null);
+
   // Validation errors
   const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
 
@@ -620,6 +623,8 @@ export default function HomePage() {
             }
             
             await memberCircles.mutate();
+            // Collapse the create circle form after success
+            setCircleFormPanel(null);
             toast.success(`Circle created successfully!${newCircleId ? ` ID: ${newCircleId}` : ''}`, { title: 'Circle created' });
             setConfirmationModal({ isOpen: false, type: '', onConfirm: () => {} });
           } catch (error) {
@@ -701,6 +706,8 @@ export default function HomePage() {
             }
             
             await memberCircles.mutate();
+            // Collapse the join circle form after success
+            setCircleFormPanel(null);
             toast.success('Joined circle successfully!', { title: 'Circle joined' });
             setConfirmationModal({ isOpen: false, type: '', onConfirm: () => {} });
           } catch (error) {
@@ -1414,6 +1421,8 @@ export default function HomePage() {
             onJoinCircle={handleJoinCircle}
             creating={createCircleMutation.loading}
             joining={joinCircleMutation.loading}
+            openPanel={circleFormPanel}
+            setOpenPanel={setCircleFormPanel}
           />
 
       {/* Circles List and Details - Circle list always visible, details shown when circle selected */}
@@ -1620,114 +1629,117 @@ export default function HomePage() {
                         </dl>
                       </div>
 
-                      {/* Owner Controls - Membership Toggle - only when circle is open */}
-                      {selectedCircle.owner === near.accountId && selectedCircle.state === 'open' && (
-                        <div className={`rounded-lg border border-border/50 bg-card/50 p-2.5 shadow-near-glow-sm backdrop-blur-sm`}>
-                          <div className="flex items-center justify-between">
-                            <div>
-                              <p className="text-sm font-semibold text-fg">Membership</p>
-                              <p className="text-xs text-muted-fg">
-                                {selectedCircle.membership_open ? 'New members can join' : 'Circle is closed to new members'}
-                              </p>
-                            </div>
-                            <button
-                              type="button"
-                              onClick={async () => {
-                                if (!near.accountId || !near.callFunction) return;
-                                try {
-                                  toast.info('Check your wallet to approve.', { title: 'Update membership', durationMs: 6_000 });
-                                  await near.callFunction({
-                                    contractId,
-                                    method: 'set_membership_open',
-                                    args: { circle_id: selectedCircle.id, open: !selectedCircle.membership_open },
-                                    gas: GAS_150_TGAS,
-                                    deposit: '0',
-                                  });
-                                  toast.success(selectedCircle.membership_open ? 'Circle closed to new members' : 'Circle opened for new members', { title: 'Updated' });
-                                  // Refresh circle data
-                                  if (near.viewFunction) {
-                                    const updated = await getCircle(selectedCircle.id, near.viewFunction);
-                                    setCircleMap(prev => ({ ...prev, [updated.id]: updated }));
-                                  }
-                                } catch (err) {
-                                  toast.error(`Failed to update membership: ${String(err)}`, { title: 'Update failed' });
-                                }
-                              }}
-                              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-brand-500/20 ${
-                                selectedCircle.membership_open ? 'bg-brand-500' : 'bg-muted-fg'
-                              }`}
-                              aria-pressed={selectedCircle.membership_open}
-                              aria-label={selectedCircle.membership_open ? 'Close circle to new members' : 'Open circle to new members'}
-                            >
-                              <span
-                                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                                  selectedCircle.membership_open ? 'translate-x-6' : 'translate-x-1'
-                                }`}
-                              />
-                            </button>
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Circle Actions - Owner controls for managing circle */}
+                      {/* Owner Controls - Membership Toggle and Circle Actions in a row */}
                       {selectedCircle.owner === near.accountId && (
-                        <div className={`rounded-lg border border-border/50 bg-card/50 p-2.5 shadow-near-glow-sm backdrop-blur-sm`}>
-                          <p className="text-xs font-semibold text-muted-fg mb-2 flex items-center gap-1.5">
-                            <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
-                              <path fillRule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.372-.836-2.942.734-2.106 2.106.54.886.061 2.042-.947 2.287-1.561.379-1.561 2.6 0 2.978a1.532 1.532 0 01.947 2.287c-.836 1.372.734 2.942 2.106 2.106a1.532 1.532 0 012.287.947c.379 1.561 2.6 1.561 2.978 0a1.533 1.533 0 012.287-.947c1.372.836 2.942-.734 2.106-2.106a1.533 1.533 0 01.947-2.287c1.561-.379 1.561-2.6 0-2.978a1.532 1.532 0 01-.947-2.287c.836-1.372-.734-2.942-2.106-2.106a1.532 1.532 0 01-2.287-.947zM10 13a3 3 0 100-6 3 3 0 000 6z" clipRule="evenodd" />
-                            </svg>
-                            Circle Actions
-                          </p>
-                          <div className="flex flex-wrap gap-2">
-                            {/* Transfer Ownership - owner only, when circle is open */}
-                            {selectedCircle.state === 'open' && selectedCircle.members.length > 1 && (
-                              <Button
-                                size="sm"
-                                variant="secondary"
-                                onClick={() => {
-                                  // Simple prompt for new owner - could be a modal in the future
-                                  const newOwner = prompt('Enter the account ID of the new owner (must be a member):');
-                                  if (newOwner && newOwner.trim()) {
-                                    handleTransferOwnership(newOwner.trim());
-                                  }
-                                }}
-                                loading={transferOwnershipMutation.loading}
-                              >
-                                <svg className="w-3 h-3 mr-1" fill="currentColor" viewBox="0 0 20 20">
-                                  <path d="M8 9a3 3 0 100-6 3 3 0 000 6zM8 11a6 6 0 016 6H2a6 6 0 016-6zM16 7a1 1 0 10-2 0v1h-1a1 1 0 100 2h1v1a1 1 0 102 0v-1h1a1 1 0 100-2h-1V7z" />
-                                </svg>
-                                Transfer
-                              </Button>
-                            )}
-                            {/* Reset Confirmations - owner only, during settlement_in_progress */}
-                            {selectedCircle.state === 'settlement_in_progress' && (
-                              <Button
-                                size="sm"
-                                variant="secondary"
-                                onClick={() => handleResetConfirmations()}
-                                loading={resetConfirmationsMutation.loading}
-                              >
-                                <svg className="w-3 h-3 mr-1" fill="currentColor" viewBox="0 0 20 20">
-                                  <path fillRule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clipRule="evenodd" />
-                                </svg>
-                                Reset Confirmations
-                              </Button>
-                            )}
-                            {/* Delete Circle - owner only, when they're the only member */}
-                            {selectedCircle.members.length === 1 && (
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => handleDeleteCircle()}
-                                loading={deleteCircleMutation.loading}
-                                className="text-red-500 border-red-500/50 hover:bg-red-500/10"
-                              >
-                                <svg className="w-3 h-3 mr-1" fill="currentColor" viewBox="0 0 20 20">
-                                  <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
-                                </svg>
-                                Delete Circle
-                              </Button>
-                            )}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                          {/* Membership Toggle - only when circle is open */}
+                          {selectedCircle.state === 'open' && (
+                            <div className={`rounded-lg border border-border/50 bg-card/50 p-2.5 shadow-near-glow-sm backdrop-blur-sm`}>
+                              <div className="flex items-center justify-between">
+                                <div>
+                                  <p className="text-sm font-semibold text-fg">Membership</p>
+                                  <p className="text-xs text-muted-fg">
+                                    {selectedCircle.membership_open ? 'New members can join' : 'Circle is closed to new members'}
+                                  </p>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={async () => {
+                                    if (!near.accountId || !near.callFunction) return;
+                                    try {
+                                      toast.info('Check your wallet to approve.', { title: 'Update membership', durationMs: 6_000 });
+                                      await near.callFunction({
+                                        contractId,
+                                        method: 'set_membership_open',
+                                        args: { circle_id: selectedCircle.id, open: !selectedCircle.membership_open },
+                                        gas: GAS_150_TGAS,
+                                        deposit: '0',
+                                      });
+                                      toast.success(selectedCircle.membership_open ? 'Circle closed to new members' : 'Circle opened for new members', { title: 'Updated' });
+                                      // Refresh circle data
+                                      if (near.viewFunction) {
+                                        const updated = await getCircle(selectedCircle.id, near.viewFunction);
+                                        setCircleMap(prev => ({ ...prev, [updated.id]: updated }));
+                                      }
+                                    } catch (err) {
+                                      toast.error(`Failed to update membership: ${String(err)}`, { title: 'Update failed' });
+                                    }
+                                  }}
+                                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-brand-500/20 ${
+                                    selectedCircle.membership_open ? 'bg-brand-500' : 'bg-muted-fg'
+                                  }`}
+                                  aria-pressed={selectedCircle.membership_open}
+                                  aria-label={selectedCircle.membership_open ? 'Close circle to new members' : 'Open circle to new members'}
+                                >
+                                  <span
+                                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                                      selectedCircle.membership_open ? 'translate-x-6' : 'translate-x-1'
+                                    }`}
+                                  />
+                                </button>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Circle Actions */}
+                          <div className={`rounded-lg border border-border/50 bg-card/50 p-2.5 shadow-near-glow-sm backdrop-blur-sm ${selectedCircle.state !== 'open' ? 'sm:col-span-2' : ''}`}>
+                            <p className="text-xs font-semibold text-muted-fg mb-2 flex items-center gap-1.5">
+                              <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
+                                <path fillRule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.372-.836-2.942.734-2.106 2.106.54.886.061 2.042-.947 2.287-1.561.379-1.561 2.6 0 2.978a1.532 1.532 0 01.947 2.287c-.836 1.372.734 2.942 2.106 2.106a1.532 1.532 0 012.287.947c.379 1.561 2.6 1.561 2.978 0a1.533 1.533 0 012.287-.947c1.372.836 2.942-.734 2.106-2.106a1.533 1.533 0 01.947-2.287c1.561-.379 1.561-2.6 0-2.978a1.532 1.532 0 01-.947-2.287c.836-1.372-.734-2.942-2.106-2.106a1.532 1.532 0 01-2.287-.947zM10 13a3 3 0 100-6 3 3 0 000 6z" clipRule="evenodd" />
+                              </svg>
+                              Circle Actions
+                            </p>
+                            <div className="flex flex-wrap gap-2">
+                              {/* Transfer Ownership - owner only, when circle is open */}
+                              {selectedCircle.state === 'open' && selectedCircle.members.length > 1 && (
+                                <Button
+                                  size="sm"
+                                  variant="secondary"
+                                  onClick={() => {
+                                    // Simple prompt for new owner - could be a modal in the future
+                                    const newOwner = prompt('Enter the account ID of the new owner (must be a member):');
+                                    if (newOwner && newOwner.trim()) {
+                                      handleTransferOwnership(newOwner.trim());
+                                    }
+                                  }}
+                                  loading={transferOwnershipMutation.loading}
+                                >
+                                  <svg className="w-3 h-3 mr-1" fill="currentColor" viewBox="0 0 20 20">
+                                    <path d="M8 9a3 3 0 100-6 3 3 0 000 6zM8 11a6 6 0 016 6H2a6 6 0 016-6zM16 7a1 1 0 10-2 0v1h-1a1 1 0 100 2h1v1a1 1 0 102 0v-1h1a1 1 0 100-2h-1V7z" />
+                                  </svg>
+                                  Transfer
+                                </Button>
+                              )}
+                              {/* Reset Confirmations - owner only, during settlement_in_progress */}
+                              {selectedCircle.state === 'settlement_in_progress' && (
+                                <Button
+                                  size="sm"
+                                  variant="secondary"
+                                  onClick={() => handleResetConfirmations()}
+                                  loading={resetConfirmationsMutation.loading}
+                                >
+                                  <svg className="w-3 h-3 mr-1" fill="currentColor" viewBox="0 0 20 20">
+                                    <path fillRule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clipRule="evenodd" />
+                                  </svg>
+                                  Reset Confirmations
+                                </Button>
+                              )}
+                              {/* Delete Circle - owner only, when they're the only member */}
+                              {selectedCircle.members.length === 1 && (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => handleDeleteCircle()}
+                                  loading={deleteCircleMutation.loading}
+                                  className="text-red-500 border-red-500/50 hover:bg-red-500/10"
+                                >
+                                  <svg className="w-3 h-3 mr-1" fill="currentColor" viewBox="0 0 20 20">
+                                    <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
+                                  </svg>
+                                  Delete Circle
+                                </Button>
+                              )}
+                            </div>
                           </div>
                         </div>
                       )}
