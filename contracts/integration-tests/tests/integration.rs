@@ -18,6 +18,7 @@
 use near_workspaces::{Account, Contract, DevNetwork, Worker};
 use near_workspaces::types::NearToken;
 use serde_json::json;
+use sha2::{Sha256, Digest};
 
 // Use the optimized WASM (run wasm-opt after cargo build)
 const WASM_FILEPATH: &str = "../near_splitter/target/wasm32-unknown-unknown/release/near_splitter_optimized.wasm";
@@ -100,6 +101,21 @@ fn assert_failure_contains(res: &near_workspaces::result::ExecutionFinalResult, 
     );
 }
 
+/// Generate a test salt (32 hex chars)
+fn generate_test_salt() -> String {
+    "0123456789abcdef0123456789abcdef".to_string()
+}
+
+/// Hash a password with salt using SHA-256, matching frontend format
+/// Format: SHA-256("salt:password:nearsplitter-v1") as hex
+fn hash_invite_code(salt: &str, password: &str) -> String {
+    let message = format!("{}:{}:nearsplitter-v1", salt, password);
+    let mut hasher = Sha256::new();
+    hasher.update(message.as_bytes());
+    let result = hasher.finalize();
+    result.iter().map(|b| format!("{:02x}", b)).collect()
+}
+
 /// Helper to create a circle and return its ID
 async fn create_circle(
     contract: &Contract,
@@ -108,7 +124,16 @@ async fn create_circle(
     invite_code: Option<&str>,
 ) -> anyhow::Result<String> {
     let args = match invite_code {
-        Some(code) => json!({ "name": name, "invite_code": code }),
+        Some(password) => {
+            // Hash the password client-side like the frontend does
+            let salt = generate_test_salt();
+            let hash = hash_invite_code(&salt, password);
+            json!({ 
+                "name": name, 
+                "invite_code_hash": hash,
+                "invite_code_salt": salt
+            })
+        }
         None => json!({ "name": name }),
     };
     let result = owner
@@ -272,12 +297,15 @@ async fn test_create_private_circle_with_password() -> anyhow::Result<()> {
     
     register_account(&contract, &alice).await?;
     
-    // Create private circle
+    // Create private circle with hashed password
+    let salt = generate_test_salt();
+    let hash = hash_invite_code(&salt, "password123");
     let result = alice
         .call(contract.id(), "create_circle")
         .args_json(json!({ 
             "name": "Secret Club",
-            "invite_code": "password123"
+            "invite_code_hash": hash,
+            "invite_code_salt": salt
         }))
         .transact()
         .await?
@@ -285,7 +313,7 @@ async fn test_create_private_circle_with_password() -> anyhow::Result<()> {
     
     let circle_id: String = result.json()?;
     
-    // Verify it has invite_code_hash
+    // Verify it has invite_code_hash and salt
     let circle: serde_json::Value = contract
         .view("get_circle")
         .args_json(json!({ "circle_id": circle_id }))
@@ -293,6 +321,7 @@ async fn test_create_private_circle_with_password() -> anyhow::Result<()> {
         .json()?;
     
     assert!(circle["invite_code_hash"].as_str().is_some(), "Should have password hash");
+    assert!(circle["invite_code_salt"].as_str().is_some(), "Should have salt");
     
     Ok(())
 }
@@ -342,12 +371,21 @@ async fn test_join_private_circle_wrong_password() -> anyhow::Result<()> {
     // Alice creates private circle
     let circle_id = create_circle(&contract, &alice, "Private Circle", Some("correct_password")).await?;
     
-    // Bob tries to join with wrong password
+    // Get the circle to retrieve its salt
+    let circle: serde_json::Value = contract
+        .view("get_circle")
+        .args_json(json!({ "circle_id": &circle_id }))
+        .await?
+        .json()?;
+    let salt = circle["invite_code_salt"].as_str().unwrap();
+    
+    // Bob tries to join with wrong password (hash it client-side like a real client would)
+    let wrong_hash = hash_invite_code(salt, "wrong_password");
     let join_result = bob
         .call(contract.id(), "join_circle")
         .args_json(json!({ 
             "circle_id": circle_id,
-            "invite_code": "wrong_password"
+            "invite_code_hash": wrong_hash
         }))
         .transact()
         .await?;
@@ -370,11 +408,20 @@ async fn test_join_private_circle_correct_password() -> anyhow::Result<()> {
     // Alice creates private circle
     let circle_id = create_circle(&contract, &alice, "Private Circle", Some("secret123")).await?;
     
-    // Bob joins with correct password
+    // Get the circle to retrieve its salt
+    let circle: serde_json::Value = contract
+        .view("get_circle")
+        .args_json(json!({ "circle_id": &circle_id }))
+        .await?
+        .json()?;
+    let salt = circle["invite_code_salt"].as_str().unwrap();
+    
+    // Bob joins with correct password (hash it client-side)
+    let correct_hash = hash_invite_code(salt, "secret123");
     bob.call(contract.id(), "join_circle")
         .args_json(json!({ 
             "circle_id": circle_id,
-            "invite_code": "secret123"
+            "invite_code_hash": correct_hash
         }))
         .transact()
         .await?
@@ -1401,27 +1448,32 @@ async fn test_full_expense_splitting_workflow() -> anyhow::Result<()> {
     register_account(&contract, &bob).await?;
     register_account(&contract, &charlie).await?;
     
-    // Alice creates a trip circle with password
+    // Alice creates a trip circle with password (hashed client-side)
+    let salt = generate_test_salt();
+    let hash = hash_invite_code(&salt, "trip2024");
     let result = alice
         .call(contract.id(), "create_circle")
         .args_json(json!({ 
             "name": "Weekend Trip",
-            "invite_code": "trip2024"
+            "invite_code_hash": hash,
+            "invite_code_salt": salt.clone()
         }))
         .transact()
         .await?
         .into_result()?;
     let circle_id: String = result.json()?;
     
-    // Bob and Charlie join with password
+    // Bob and Charlie join with password (hashed using the circle's salt)
+    let join_hash = hash_invite_code(&salt, "trip2024");
     bob.call(contract.id(), "join_circle")
-        .args_json(json!({ "circle_id": &circle_id, "invite_code": "trip2024" }))
+        .args_json(json!({ "circle_id": &circle_id, "invite_code_hash": join_hash }))
         .transact()
         .await?
         .into_result()?;
     
+    let join_hash_charlie = hash_invite_code(&salt, "trip2024");
     charlie.call(contract.id(), "join_circle")
-        .args_json(json!({ "circle_id": &circle_id, "invite_code": "trip2024" }))
+        .args_json(json!({ "circle_id": &circle_id, "invite_code_hash": join_hash_charlie }))
         .transact()
         .await?
         .into_result()?;

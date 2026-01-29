@@ -43,7 +43,7 @@ export default function HelpPage() {
           <div className="space-y-6">
             {[
               { step: 1, title: 'Connect Your Wallet', desc: 'Click "Connect Wallet" and sign in with your NEAR wallet (testnet)', icon: Wallet },
-              { step: 2, title: 'One-Time Registration', desc: 'Pay a small storage fee (~0.03 Ⓝ) to register your account', icon: CheckCircle2 },
+              { step: 2, title: 'One-Time Registration', desc: 'Pay a small storage fee (~0.25 Ⓝ) to register your account', icon: CheckCircle2 },
               { step: 3, title: 'Create or Join a Circle', desc: 'Create a new circle with a password, or join an existing one', icon: CircleDot },
               { step: 4, title: 'Add Expenses', desc: 'Record an expense and select who to split the cost with', icon: Receipt },
               { step: 5, title: 'Settle Up', desc: 'Confirm when ready - settlements happen automatically!', icon: Coins },
@@ -102,7 +102,7 @@ export default function HelpPage() {
           <div className="space-y-6">
             <FAQItem
               question="What is the storage fee?"
-              answer="NEAR requires ~0.03 Ⓝ to store your account data on the blockchain. This is a one-time fee and can be withdrawn when you unregister."
+              answer="NEAR requires ~0.25 Ⓝ to store your account data on the blockchain. This is a one-time fee and can be withdrawn when you unregister."
             />
             <FAQItem
               question="How does auto-settlement work?"

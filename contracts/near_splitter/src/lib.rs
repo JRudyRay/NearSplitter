@@ -14,7 +14,7 @@ use near_sdk::{
     PanicOnDefault, Promise, PromiseOrValue, PromiseResult,
 };
 
-const STORAGE_BYTES_PER_ACCOUNT: u64 = 2_500;
+const STORAGE_BYTES_PER_ACCOUNT: u64 = 25_000;
 const MAX_PAGINATION_LIMIT: u64 = 100;  // Maximum items per page - prevents DoS attacks
 const MAX_CIRCLE_MEMBERS: usize = 50;  // Maximum members per circle - prevents member explosion
 const MAX_EXPENSES_PER_CIRCLE: usize = 500;  // Maximum expenses per circle - prevents storage DoS
@@ -98,8 +98,13 @@ pub struct Circle {
     pub name: String,
     pub members: Vec<AccountId>,
     pub created_ms: u64,
-    /// Optional invite code hash for private circles. If set, users must provide the code to join.
+    /// Optional invite code hash for private circles. If set, users must provide the hash to join.
+    /// SECURITY: This is a pre-hashed value - the client hashes the password before sending.
+    /// Format: SHA-256 hash of "salt:password:nearsplitter-v1" as hex string
     pub invite_code_hash: Option<String>,
+    /// Salt used for the invite code hash (client-generated, random)
+    /// Required when invite_code_hash is set
+    pub invite_code_salt: Option<String>,
     /// When true, settlement is in progress (no new expenses, no joining allowed)
     pub locked: bool,
     /// When false, no new members can join (owner-controlled)
@@ -688,10 +693,23 @@ impl NearSplitter {
 
     /// Create a new expense-sharing circle.
     /// Caller becomes the owner and first member.
-    /// If invite_code is provided, the circle is private and requires the code to join.
+    /// 
+    /// # Security: Client-Side Hashing Required
+    /// If creating a private circle, the client MUST hash the password before sending:
+    /// 1. Generate a random salt (32+ chars recommended)
+    /// 2. Compute: SHA-256("salt:password:nearsplitter-v1") 
+    /// 3. Send invite_code_hash (hex string) and invite_code_salt
+    /// 
+    /// This prevents plaintext passwords from appearing on the blockchain!
+    /// 
     /// SECURITY: Input validation prevents storage exhaustion attacks
     #[payable]
-    pub fn create_circle(&mut self, name: String, invite_code: Option<String>) -> String {
+    pub fn create_circle(
+        &mut self, 
+        name: String, 
+        invite_code_hash: Option<String>,
+        invite_code_salt: Option<String>,
+    ) -> String {
         let owner = env::predecessor_account_id();
         self.assert_registered(&owner);
         require!(!name.trim().is_empty(), "Circle name cannot be empty");
@@ -701,6 +719,25 @@ impl NearSplitter {
             name.chars().all(|c| !c.is_control() || c == ' ' || c == '\t'),
             "Circle name contains invalid characters"
         );
+
+        // Validate invite code hash and salt consistency
+        let (validated_hash, validated_salt) = match (&invite_code_hash, &invite_code_salt) {
+            (Some(hash), Some(salt)) => {
+                // Validate hash format (64 hex chars = SHA-256)
+                require!(hash.len() == 64, "Invalid invite code hash format (must be 64 hex chars)");
+                require!(
+                    hash.chars().all(|c| c.is_ascii_hexdigit()),
+                    "Invalid invite code hash format (must be hexadecimal)"
+                );
+                // Validate salt (non-empty, reasonable length)
+                require!(!salt.trim().is_empty(), "Salt cannot be empty");
+                require!(salt.len() >= 16, "Salt too short (min 16 chars for security)");
+                require!(salt.len() <= 128, "Salt too long (max 128 chars)");
+                (Some(hash.clone()), Some(salt.clone()))
+            }
+            (None, None) => (None, None),
+            _ => env::panic_str("invite_code_hash and invite_code_salt must both be provided or both be None"),
+        };
 
         // Prevent overflow of circle index
         require!(
@@ -714,25 +751,14 @@ impl NearSplitter {
 
         let members = vec![owner.clone()];
 
-        // Hash the invite code if provided for security (salted with circle_id)
-        let invite_code_hash = invite_code.map(|code| {
-            require!(!code.trim().is_empty(), "Invite code cannot be empty");
-            require!(code.len() <= 128, "Invite code too long (max 128 bytes)");
-            // Salt with circle_id to prevent rainbow table attacks
-            let salted = format!("{}:{}:nearsplitter-v1", circle_id, code);
-            env::sha256(salted.as_bytes())
-                .iter()
-                .map(|b| format!("{:02x}", b))
-                .collect::<String>()
-        });
-
         let circle = Circle {
             id: circle_id.clone(),
             owner: owner.clone(),
             name: name.clone(),
             members,
             created_ms,
-            invite_code_hash,
+            invite_code_hash: validated_hash,
+            invite_code_salt: validated_salt,
             locked: false,
             membership_open: true, // New circles are open by default
             state: CircleState::Open,  // Initialize in Open state
@@ -761,15 +787,22 @@ impl NearSplitter {
         circle.id
     }
 
-    /// Join a circle. Requires invite code if the circle is private.
+    /// Join a circle. Requires invite code hash if the circle is private.
+    /// 
+    /// # Security: Client-Side Hashing Required
+    /// The client MUST hash the password before sending:
+    /// 1. Get the circle's invite_code_salt from get_circle() 
+    /// 2. Compute: SHA-256("salt:password:nearsplitter-v1")
+    /// 3. Send invite_code_hash (hex string)
+    /// 
     /// Cannot join if:
     /// - Circle is not accepting new members (membership_open = false)
     /// - Circle is locked for settlement
     /// - Circle has reached maximum member limit
     /// - User is already a member
-    // SECURITY: invite_code is Optional - None is valid for public circles
+    // SECURITY: invite_code_hash is Optional - None is valid for public circles
     #[payable]
-    pub fn join_circle(&mut self, circle_id: String, invite_code: Option<String>) {
+    pub fn join_circle(&mut self, circle_id: String, invite_code_hash: Option<String>) {
         let account = env::predecessor_account_id();
         self.assert_registered(&account);
 
@@ -796,15 +829,17 @@ impl NearSplitter {
             "Cannot join a finalized circle that is not accepting members"
         );
 
-        // Verify invite code if circle is private
+        // Verify invite code hash if circle is private
+        // SECURITY: The client already hashed the password using the circle's salt
+        // We just compare the pre-hashed values directly - no plaintext ever touches the chain!
         if let Some(expected_hash) = &circle.invite_code_hash {
-            let provided_code = invite_code.unwrap_or_else(|| env::panic_str("This circle requires an invite code"));
-            // Use same salted hash as create_circle
-            let salted = format!("{}:{}:nearsplitter-v1", circle_id, provided_code);
-            let provided_hash = env::sha256(salted.as_bytes())
-                .iter()
-                .map(|b| format!("{:02x}", b))
-                .collect::<String>();
+            let provided_hash = invite_code_hash.unwrap_or_else(|| env::panic_str("This circle requires an invite code"));
+            // Validate hash format
+            require!(provided_hash.len() == 64, "Invalid invite code format");
+            require!(
+                provided_hash.chars().all(|c| c.is_ascii_hexdigit()),
+                "Invalid invite code format"
+            );
             require!(
                 &provided_hash == expected_hash,
                 "Invalid invite code"

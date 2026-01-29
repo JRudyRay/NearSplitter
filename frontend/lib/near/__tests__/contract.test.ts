@@ -88,6 +88,7 @@ describe('Contract type normalization', () => {
       members: ['alice.testnet', 'bob.testnet'],
       created_ms: 1704067200000,
       invite_code_hash: null,
+      invite_code_salt: null,
       locked: false,
       membership_open: true,
       state: 'open' as const
@@ -164,11 +165,13 @@ describe('Contract method signatures', () => {
   it('documents change method signatures', () => {
     // Change methods require gas and possibly deposit
     const changeMethods = {
-      // create_circle(name: String, invite_code: Option<String>) -> Circle
-      create_circle: { args: ['name', 'invite_code?'], deposit: '0', gas: '50 TGas' },
+      // create_circle(name: String, invite_code_hash: Option<String>, invite_code_salt: Option<String>) -> Circle
+      // SECURITY: Password is hashed client-side before sending!
+      create_circle: { args: ['name', 'invite_code_hash?', 'invite_code_salt?'], deposit: '0', gas: '50 TGas' },
       
-      // join_circle(circle_id: String, invite_code: Option<String>)
-      join_circle: { args: ['circle_id', 'invite_code?'], deposit: '0', gas: '50 TGas' },
+      // join_circle(circle_id: String, invite_code_hash: Option<String>)
+      // SECURITY: Password is hashed client-side using circle's salt before sending!
+      join_circle: { args: ['circle_id', 'invite_code_hash?'], deposit: '0', gas: '50 TGas' },
       
       // add_expense(circle_id: String, participants: Vec<MemberShare>, amount_yocto: U128, memo: String) -> Expense
       add_expense: { args: ['circle_id', 'participants', 'amount_yocto', 'memo'], deposit: '0', gas: '100 TGas' },

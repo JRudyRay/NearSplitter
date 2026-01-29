@@ -27,7 +27,17 @@ export interface Circle {
   name: string;
   members: string[];
   created_ms: number;
+  /** 
+   * Pre-hashed invite code for private circles.
+   * SECURITY: This is a SHA-256 hash, never plaintext!
+   */
   invite_code_hash?: string | null;
+  /**
+   * Salt used for the invite code hash.
+   * Required when invite_code_hash is set.
+   * Users need this salt to hash their password for joining.
+   */
+  invite_code_salt?: string | null;
   locked: boolean;
   membership_open: boolean;
   /** UPDATED: Added state field to track settlement state machine */

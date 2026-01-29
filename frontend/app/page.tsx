@@ -30,6 +30,7 @@ import {
   validateRequired,
   sanitizeInput 
 } from '@/lib/utils/validation';
+import { prepareInviteCodeForCreate, prepareInviteCodeForJoin } from '@/lib/utils/crypto';
 import type {
   BalanceView,
   Circle,
@@ -545,17 +546,28 @@ export default function HomePage() {
         type: 'create circle',
         details: [
           { label: 'Circle Name', value: sanitizedName },
-          { label: 'Password Protected', value: 'Yes' }
+          { label: 'Password Protected', value: sanitizedPassword ? 'Yes' : 'No' }
         ],
         onConfirm: async () => {
           try {
             toast.info('Check your wallet to approve.', { title: 'Create circle', durationMs: 6_000 });
-            const args: { name: string; invite_code?: string } = { 
-              name: sanitizedName 
-            };
+            
+            // SECURITY: Hash the password client-side before sending to blockchain
+            // This ensures plaintext passwords NEVER appear on-chain!
+            const args: { 
+              name: string; 
+              invite_code_hash?: string;
+              invite_code_salt?: string;
+            } = { name: sanitizedName };
+            
+            let originalPassword: string | undefined;
             if (sanitizedPassword) {
-              args.invite_code = sanitizedPassword;
+              const inviteData = await prepareInviteCodeForCreate(sanitizedPassword);
+              args.invite_code_hash = inviteData.invite_code_hash;
+              args.invite_code_salt = inviteData.invite_code_salt;
+              originalPassword = inviteData.originalPassword;
             }
+            
             const outcome = await createCircleMutation.execute('create_circle', args) as FinalExecutionOutcome | undefined;
             
             // Extract the returned circle ID from the transaction result
@@ -581,11 +593,12 @@ export default function HomePage() {
             if (newCircleId) {
               // Store password in localStorage keyed by owner account for security
               // Only the owner who created it can access it from this browser
-              if (sanitizedPassword && near.accountId) {
+              // SECURITY: Store the original password locally so owner can share it with members
+              if (originalPassword && near.accountId) {
                 try {
                   const storageKey = `nearsplitter:${near.accountId}:circle_passwords`;
                   const stored = localStorage.getItem(storageKey) ? JSON.parse(localStorage.getItem(storageKey)!) : {};
-                  stored[newCircleId] = sanitizedPassword;
+                  stored[newCircleId] = originalPassword;
                   localStorage.setItem(storageKey, JSON.stringify(stored));
                 } catch (e) {
                   console.warn('Could not store circle password:', e);
@@ -649,12 +662,28 @@ export default function HomePage() {
         onConfirm: async () => {
           try {
             toast.info('Check your wallet to approve.', { title: 'Join circle', durationMs: 6_000 });
-            const args: { circle_id: string; invite_code?: string } = { 
+            
+            // SECURITY: Hash the password client-side using the circle's salt
+            // This ensures plaintext passwords NEVER appear on-chain!
+            const args: { circle_id: string; invite_code_hash?: string } = { 
               circle_id: trimmed 
             };
+            
             if (sanitizedPassword) {
-              args.invite_code = sanitizedPassword;
+              // First, fetch the circle to get its salt
+              if (!near.viewFunction) {
+                throw new Error('Cannot verify circle - please try again');
+              }
+              const targetCircle = await getCircle(trimmed, near.viewFunction);
+              if (targetCircle.invite_code_hash && !targetCircle.invite_code_salt) {
+                throw new Error('Circle has password protection but missing salt - may need migration');
+              }
+              if (targetCircle.invite_code_salt) {
+                const hash = await prepareInviteCodeForJoin(sanitizedPassword, targetCircle.invite_code_salt);
+                args.invite_code_hash = hash;
+              }
             }
+            
             await joinCircleMutation.execute('join_circle', args);
             setJoinCircleId('');
             setJoinCirclePassword('');

@@ -153,8 +153,8 @@
 | Method | Args | Deposit | Gas | Frontend Status |
 |--------|------|---------|-----|-----------------|
 | `storage_deposit` | `account_id?` | min storage | 50 TGas | ✅ UI |
-| `create_circle` | `name, invite_code?` | 0 | 50 TGas | ✅ UI |
-| `join_circle` | `circle_id, invite_code?` | 0 | 50 TGas | ✅ UI |
+| `create_circle` | `name, invite_code_hash?, invite_code_salt?` | 0 | 50 TGas | ✅ UI |
+| `join_circle` | `circle_id, invite_code_hash?` | 0 | 50 TGas | ✅ UI |
 | `add_expense` | `circle_id, participants, amount_yocto, memo` | 0 | 100 TGas | ✅ UI |
 | `file_claim` | `circle_id, expense_id, reason, ...` | 0 | 100 TGas | ✅ UI |
 | `approve_claim` | `circle_id, claim_id` | 0 | 100 TGas | ✅ UI |
@@ -173,6 +173,11 @@
 | `cache_ft_metadata` | `token_account_id` | 0 | 50 TGas | Handler only |
 | `storage_withdraw` | `amount?` | 1 yocto | 50 TGas | Handler only |
 | `storage_unregister` | `force?` | 1 yocto | 50 TGas | Handler only |
+
+> ⚠️ **SECURITY NOTE**: `create_circle` and `join_circle` now accept **pre-hashed** invite codes!
+> The frontend must hash passwords client-side using SHA-256 before sending to the contract.
+> Format: `SHA-256("salt:password:nearsplitter-v1")` as 64-char hex string.
+> This ensures plaintext passwords NEVER appear on the blockchain!
 
 ---
 
