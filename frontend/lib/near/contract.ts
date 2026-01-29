@@ -89,7 +89,8 @@ function normalizeExpenseResponse(result: unknown): Expense {
   const obj = result as Record<string, unknown>;
   // Normalize amount_yocto from possible U128 wrapper to string
   obj.amount_yocto = normalizeU128(obj.amount_yocto);
-  return obj as Expense;
+  // Cast through unknown to satisfy TypeScript strict mode
+  return obj as unknown as Expense;
 }
 
 /**

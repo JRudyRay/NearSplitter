@@ -712,8 +712,7 @@ impl NearSplitter {
         self.next_circle_index = self.next_circle_index.saturating_add(1);
         let created_ms = timestamp_ms();
 
-        let mut members = Vec::new();
-        members.push(owner.clone());
+        let members = vec![owner.clone()];
 
         // Hash the invite code if provided for security (salted with circle_id)
         let invite_code_hash = invite_code.map(|code| {
@@ -2089,7 +2088,7 @@ impl NearSplitter {
             "event": event,
             "data": data,
         });
-        env::log_str(&format!("EVENT_JSON:{}", payload.to_string()));
+        env::log_str(&format!("EVENT_JSON:{}", payload));
     }
 
     /// Callback after FT forward completes.
