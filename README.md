@@ -14,8 +14,7 @@ Quick start (use)
 Developer notes
 - Frontend: Next.js + TypeScript + Tailwind CSS (in `frontend/`).
 - Contract: Rust + near-sdk (in `contracts/near_splitter/`).
-# NearSplitter — demo on GitHub Pages
-# NearSplitter
+
 
 Live demo: https://jrudyray.github.io/NearSplitter/
 
