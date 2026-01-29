@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState, type ChangeEvent, type FormEvent } from 'react';
-import { Wallet, HelpCircle, Receipt, Users, DollarSign, TrendingUp, Copy, Check, ArrowRight, Eye, EyeOff } from 'lucide-react';
+import { Wallet, HelpCircle, Receipt, Users, DollarSign, TrendingUp, Copy, Check, ArrowRight, Eye, EyeOff, AlertTriangle } from 'lucide-react';
 import Link from 'next/link';
 import { useNear } from '@/lib/hooks/use-near';
 import { Button } from '@/components/ui/button';
@@ -20,6 +20,7 @@ import { useLocalStorage } from '@/lib/hooks/use-local-storage';
 import { formatNearAmount, formatTimestamp, parseNearAmount } from '@/lib/utils/format';
 import { buildEqualShares, uniq } from '@/lib/utils/shares';
 import { getNearConfig } from '@/lib/near/config';
+import { decodeNearError } from '@/lib/near/rpc';
 import { 
   validateAmount, 
   validateCircleName, 
@@ -32,11 +33,16 @@ import {
 import type {
   BalanceView,
   Circle,
+  Claim,
+  ClaimReason,
   Expense,
   SettlementSuggestion,
   StorageBalance,
-  StorageBalanceBounds
+  StorageBalanceBounds,
+  CircleState
 } from '@/lib/types';
+import { FileClaimModal } from '@/components/home/file-claim-modal';
+import { PendingClaimsBanner } from '@/components/home/pending-claims-banner';
 import { getCircle } from '@/lib/near/contract';
 import { GAS_150_TGAS } from '@/lib/constants';
 import type { FinalExecutionOutcome } from 'near-api-js/lib/providers';
@@ -97,6 +103,13 @@ export default function HomePage() {
   const addExpenseMutation = useContractCall();
   const payNativeMutation = useContractCall();
   const confirmLedgerMutation = useContractCall();
+  const fileClaimMutation = useContractCall();
+  const approveClaimMutation = useContractCall();
+  const rejectClaimMutation = useContractCall();
+
+  // Claim modal state
+  const [claimModalOpen, setClaimModalOpen] = useState(false);
+  const [claimTargetExpense, setClaimTargetExpense] = useState<Expense | null>(null);
 
   // Copy circle ID helper
   const copyCircleId = useCallback((id: string) => {
@@ -309,6 +322,18 @@ export default function HomePage() {
   );
   const isFullyConfirmed = useContractView<boolean>(
     selectedCircleId ? 'is_fully_confirmed' : null,
+    selectedCircleId ? { circle_id: selectedCircleId } : null,
+    { refreshInterval: 15_000 }
+  );
+
+  // Claims queries
+  const circleClaims = useContractView<Claim[]>(
+    selectedCircleId ? 'list_claims' : null,
+    selectedCircleId ? { circle_id: selectedCircleId } : null,
+    { refreshInterval: 15_000 }
+  );
+  const hasPendingClaims = useContractView<boolean>(
+    selectedCircleId ? 'has_pending_claims' : null,
     selectedCircleId ? { circle_id: selectedCircleId } : null,
     { refreshInterval: 15_000 }
   );
@@ -541,12 +566,14 @@ export default function HomePage() {
             
             // Immediately track and select the new circle
             if (newCircleId) {
-              // Store password in localStorage for the owner to recall it later
-              if (sanitizedPassword) {
+              // Store password in localStorage keyed by owner account for security
+              // Only the owner who created it can access it from this browser
+              if (sanitizedPassword && near.accountId) {
                 try {
-                  const stored = localStorage.getItem('circle_passwords') ? JSON.parse(localStorage.getItem('circle_passwords')!) : {};
+                  const storageKey = `nearsplitter:${near.accountId}:circle_passwords`;
+                  const stored = localStorage.getItem(storageKey) ? JSON.parse(localStorage.getItem(storageKey)!) : {};
                   stored[newCircleId] = sanitizedPassword;
-                  localStorage.setItem('circle_passwords', JSON.stringify(stored));
+                  localStorage.setItem(storageKey, JSON.stringify(stored));
                 } catch (e) {
                   console.warn('Could not store circle password:', e);
                 }
@@ -570,13 +597,14 @@ export default function HomePage() {
             toast.success(`Circle created successfully!${newCircleId ? ` ID: ${newCircleId}` : ''}`, { title: 'Circle created' });
             setConfirmationModal({ isOpen: false, type: '', onConfirm: () => {} });
           } catch (error) {
-            toast.error((error as Error).message, { title: 'Create circle failed' });
+            // UPDATED: Use decodeNearError for user-friendly messages
+            toast.error(decodeNearError(error), { title: 'Create circle failed' });
             throw error;
           }
         }
       });
     },
-    [createCircleName, createCirclePassword, createCircleMutation, memberCircles, setTrackedCircleIds, setSelectedCircleId, near.viewFunction, setCircleMap, toast]
+    [createCircleName, createCirclePassword, createCircleMutation, memberCircles, setTrackedCircleIds, setSelectedCircleId, near.viewFunction, near.accountId, setCircleMap, toast]
   );
 
   const handleJoinCircle = useCallback(
@@ -634,7 +662,8 @@ export default function HomePage() {
             toast.success('Joined circle successfully!', { title: 'Circle joined' });
             setConfirmationModal({ isOpen: false, type: '', onConfirm: () => {} });
           } catch (error) {
-            toast.error((error as Error).message, { title: 'Join circle failed' });
+            // UPDATED: Use decodeNearError for user-friendly messages
+            toast.error(decodeNearError(error), { title: 'Join circle failed' });
             throw error;
           }
         }
@@ -694,17 +723,101 @@ export default function HomePage() {
             });
             setExpenseAmount('');
             setExpenseMemo('');
-            await Promise.all([circleExpenses.mutate(), circleBalances.mutate(), circleSuggestions.mutate()]);
+            await Promise.all([
+              circleExpenses.mutate(), 
+              circleBalances.mutate(), 
+              circleSuggestions.mutate(),
+              circleConfirmations.mutate(),
+              isFullyConfirmed.mutate(),
+              allMembersAutopay.mutate(),
+              userAutopayStatus.mutate(),
+              userEscrowDeposit.mutate(),
+              requiredAutopayDeposit.mutate()
+            ]);
             toast.success('Expense recorded successfully!', { title: 'Expense added' });
             setConfirmationModal({ isOpen: false, type: '', onConfirm: () => {} });
           } catch (error) {
-            toast.error((error as Error).message, { title: 'Add expense failed' });
+            // UPDATED: Use decodeNearError for user-friendly messages
+            toast.error(decodeNearError(error), { title: 'Add expense failed' });
             throw error;
           }
         }
       });
     },
-    [selectedCircleId, selectedCircle, expenseAmount, participantIds, expenseMemo, addExpenseMutation, circleExpenses, circleBalances, circleSuggestions, toast]
+    [selectedCircleId, selectedCircle, expenseAmount, participantIds, expenseMemo, addExpenseMutation, circleExpenses, circleBalances, circleSuggestions, circleConfirmations, isFullyConfirmed, allMembersAutopay, userAutopayStatus, userEscrowDeposit, requiredAutopayDeposit, toast]
+  );
+
+  // File a claim to dispute an expense
+  const handleFileClaim = useCallback(
+    async (reason: ClaimReason, proposedAmount?: string, proposedParticipants?: Array<{ account_id: string; weight_bps: number }>) => {
+      if (!selectedCircleId || !claimTargetExpense) return;
+
+      try {
+        toast.info('Check your wallet to approve.', { title: 'File claim', durationMs: 6_000 });
+        await fileClaimMutation.execute('file_claim', {
+          circle_id: selectedCircleId,
+          expense_id: claimTargetExpense.id,
+          reason,
+          proposed_amount: proposedAmount ? parseNearAmount(proposedAmount) : null,
+          proposed_participants: proposedParticipants || null
+        });
+        await Promise.all([circleClaims.mutate(), hasPendingClaims.mutate()]);
+        toast.success('Claim filed successfully!', { title: 'Claim filed' });
+        setClaimModalOpen(false);
+        setClaimTargetExpense(null);
+      } catch (error) {
+        // UPDATED: Use decodeNearError for user-friendly messages
+        toast.error(decodeNearError(error), { title: 'File claim failed' });
+      }
+    },
+    [selectedCircleId, claimTargetExpense, fileClaimMutation, circleClaims, hasPendingClaims, toast]
+  );
+
+  // Approve a claim (payer only)
+  const handleApproveClaim = useCallback(
+    async (claimId: string) => {
+      if (!selectedCircleId) return;
+
+      try {
+        toast.info('Check your wallet to approve.', { title: 'Approve claim', durationMs: 6_000 });
+        await approveClaimMutation.execute('approve_claim', {
+          circle_id: selectedCircleId,
+          claim_id: claimId
+        });
+        await Promise.all([
+          circleClaims.mutate(), 
+          hasPendingClaims.mutate(), 
+          circleExpenses.mutate(), 
+          circleBalances.mutate()
+        ]);
+        toast.success('Claim approved! Expense has been updated.', { title: 'Claim approved' });
+      } catch (error) {
+        // UPDATED: Use decodeNearError for user-friendly messages
+        toast.error(decodeNearError(error), { title: 'Approve claim failed' });
+      }
+    },
+    [selectedCircleId, approveClaimMutation, circleClaims, hasPendingClaims, circleExpenses, circleBalances, toast]
+  );
+
+  // Reject a claim (payer only)
+  const handleRejectClaim = useCallback(
+    async (claimId: string) => {
+      if (!selectedCircleId) return;
+
+      try {
+        toast.info('Check your wallet to approve.', { title: 'Reject claim', durationMs: 6_000 });
+        await rejectClaimMutation.execute('reject_claim', {
+          circle_id: selectedCircleId,
+          claim_id: claimId
+        });
+        await Promise.all([circleClaims.mutate(), hasPendingClaims.mutate()]);
+        toast.success('Claim rejected.', { title: 'Claim rejected' });
+      } catch (error) {
+        // UPDATED: Use decodeNearError for user-friendly messages
+        toast.error(decodeNearError(error), { title: 'Reject claim failed' });
+      }
+    },
+    [selectedCircleId, rejectClaimMutation, circleClaims, hasPendingClaims, toast]
   );
 
   const handlePayNative = useCallback(
@@ -761,7 +874,8 @@ export default function HomePage() {
             await Promise.all([circleBalances.mutate(), circleSuggestions.mutate()]);
             setConfirmationModal({ isOpen: false, type: '', onConfirm: () => {} });
           } catch (error) {
-            toast.error((error as Error).message, { title: 'Payment failed' });
+            // UPDATED: Use decodeNearError for user-friendly messages
+            toast.error(decodeNearError(error), { title: 'Payment failed' });
             throw error;
           }
         }
@@ -807,7 +921,8 @@ export default function HomePage() {
           userEscrowDeposit.mutate()
         ]);
       } catch (error) {
-        toast.error((error as Error).message, { title: 'Confirm failed' });
+        // UPDATED: Use decodeNearError for user-friendly messages
+        toast.error(decodeNearError(error), { title: 'Confirm failed' });
       }
     },
     [
@@ -1089,6 +1204,9 @@ export default function HomePage() {
         <div className="space-y-3">
           {selectedCircle ? (
             <div className="space-y-3">
+              <PendingClaimsBanner 
+                pendingCount={circleClaims.data?.filter((c: Claim) => c.status === 'pending').length ?? 0}
+              />
               <article className="rounded-xl border border-border/50 bg-gradient-to-br from-card to-muted p-3 shadow-xl hover:shadow-xl transition-all duration-300 backdrop-blur-sm">
                 <header className="flex flex-col gap-3">
                   <div className="grid gap-3 lg:grid-cols-[1fr_320px] lg:items-start">
@@ -1124,9 +1242,10 @@ export default function HomePage() {
                             </svg>
                             <dd>{formatTimestamp(selectedCircle.created_ms)}</dd>
                           </div>
-                          {/* Circle Status Badges */}
+                          {/* Circle Status Badges - UPDATED to use state field */}
                           <div className="flex items-center gap-2 flex-wrap mt-1">
-                            {selectedCircle.locked && (
+                            {/* Settlement in Progress - circle is locked for changes */}
+                            {selectedCircle.state === 'settlement_in_progress' && (
                               <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-yellow-500/20 text-yellow-400 border border-yellow-500/30">
                                 <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
                                   <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" />
@@ -1134,7 +1253,17 @@ export default function HomePage() {
                                 Settlement in Progress
                               </span>
                             )}
-                            {!selectedCircle.membership_open && !selectedCircle.locked && (
+                            {/* Settled - circle is fully settled and closed */}
+                            {selectedCircle.state === 'settled' && (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-blue-500/20 text-blue-400 border border-blue-500/30">
+                                <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                                </svg>
+                                Settled
+                              </span>
+                            )}
+                            {/* Closed to new members - only show when circle is open (not settling/settled) */}
+                            {!selectedCircle.membership_open && selectedCircle.state === 'open' && (
                               <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-muted-fg/20 text-muted-fg border border-muted-fg/30">
                                 <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
                                   <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" />
@@ -1142,7 +1271,8 @@ export default function HomePage() {
                                 Closed to New Members
                               </span>
                             )}
-                            {selectedCircle.membership_open && !selectedCircle.locked && (
+                            {/* Open for new members - only show when circle is open (not settling/settled) */}
+                            {selectedCircle.membership_open && selectedCircle.state === 'open' && (
                               <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-green-500/20 text-green-400 border border-green-500/30">
                                 <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
                                   <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
@@ -1154,8 +1284,8 @@ export default function HomePage() {
                         </dl>
                       </div>
 
-                      {/* Owner Controls - Membership Toggle */}
-                      {selectedCircle.owner === near.accountId && !selectedCircle.locked && (
+                      {/* Owner Controls - Membership Toggle - only when circle is open */}
+                      {selectedCircle.owner === near.accountId && selectedCircle.state === 'open' && (
                         <div className={`rounded-lg border border-border/50 bg-card/50 p-2.5 shadow-near-glow-sm backdrop-blur-sm`}>
                           <div className="flex items-center justify-between">
                             <div>
@@ -1243,8 +1373,10 @@ export default function HomePage() {
                           </div>
                           
                           {/* Circle Password - only visible to owner */}
-                          {selectedCircle.owner === near.accountId && (() => {
-                            const stored = typeof window !== 'undefined' ? localStorage.getItem('circle_passwords') : null;
+                          {selectedCircle.owner === near.accountId && near.accountId && (() => {
+                            // Read from account-specific storage for security
+                            const storageKey = `nearsplitter:${near.accountId}:circle_passwords`;
+                            const stored = typeof window !== 'undefined' ? localStorage.getItem(storageKey) : null;
                             const passwords = stored ? JSON.parse(stored) : {};
                             const circlePassword = passwords[selectedCircle.id];
                             
@@ -1379,7 +1511,20 @@ export default function HomePage() {
                 {/* EXPENSES TAB: Add Expense Form */}
                 {activeTab === 'expenses' && (
                   <div className="mt-2">
-                    <form onSubmit={handleAddExpense} className={`space-y-2.5 rounded-xl border border-border/50 bg-gradient-to-br from-muted/60 to-card/60 p-2.5 shadow-xl hover:shadow-xl transition-all duration-300 shadow-near-glow-sm backdrop-blur-sm`}>
+                    {/* Show warning if circle is not open */}
+                    {selectedCircle.state !== 'open' && (
+                      <div className="mb-2 p-2.5 rounded-lg bg-yellow-500/10 border border-yellow-500/30 text-yellow-400 text-xs">
+                        <div className="flex items-center gap-1.5">
+                          <svg className="w-3 h-3 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                            <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                          </svg>
+                          {selectedCircle.state === 'settlement_in_progress'
+                            ? 'Settlement is in progress. New expenses cannot be added.'
+                            : 'This circle has been settled. No new expenses can be added.'}
+                        </div>
+                      </div>
+                    )}
+                    <form onSubmit={handleAddExpense} className={`space-y-2.5 rounded-xl border border-border/50 bg-gradient-to-br from-muted/60 to-card/60 p-2.5 shadow-xl hover:shadow-xl transition-all duration-300 shadow-near-glow-sm backdrop-blur-sm ${selectedCircle.state !== 'open' ? 'opacity-50 pointer-events-none' : ''}`}>
                     <header className="flex items-center gap-2">
                       <div className={`rounded-lg bg-brand-500/20 p-2 shadow-near-glow-sm`}>
                         <Receipt className={`h-4 w-4 text-brand-500`} aria-hidden="true" />
@@ -1454,7 +1599,7 @@ export default function HomePage() {
                     <Button
                       type="submit"
                       loading={addExpenseMutation.loading}
-                      disabled={participantIds.length === 0 || !expenseAmount}
+                      disabled={participantIds.length === 0 || !expenseAmount || selectedCircle.state !== 'open'}
                       className={`w-full bg-brand-500 hover:bg-brand-600 text-black font-bold text-sm h-9 shadow-near-glow hover:scale-[1.02] transition-all duration-200 shadow-lg`}
                       aria-label="Record expense"
                     >
@@ -1480,6 +1625,21 @@ export default function HomePage() {
                     <p className="mt-1 text-xs text-muted-fg">
                       All members must confirm before settlement
                     </p>
+
+                    {/* Pending claims warning */}
+                    {hasPendingClaims.data && (
+                      <div className="mt-2 rounded-lg border border-yellow-500/50 bg-yellow-500/10 p-2 flex items-start gap-2">
+                        <AlertTriangle className="h-4 w-4 text-yellow-500 flex-shrink-0 mt-0.5" />
+                        <div>
+                          <p className="text-xs font-medium text-yellow-500">
+                            Pending claims must be resolved
+                          </p>
+                          <p className="text-xs text-muted-fg mt-0.5">
+                            Settlement is blocked until all disputed expenses are resolved. Check the Expenses tab to review claims.
+                          </p>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </header>
                 
@@ -1619,11 +1779,11 @@ export default function HomePage() {
                             {/* Show all members autopay status */}
                             {allMembersAutopay.data !== undefined && (
                               <div className={`rounded-lg p-3 text-lg flex items-center gap-3 ${
-                                allMembersAutopay.data 
+                                allMembersAutopay.data && isFullyConfirmed.data
                                   ? `bg-brand-500/10 text-brand-500 border-2 border-brand-500 shadow-near-glow` 
                                   : 'bg-card/60 text-muted-fg border border-border'
                               }`}>
-                                {allMembersAutopay.data ? (
+                                {allMembersAutopay.data && isFullyConfirmed.data ? (
                                   <>
                                     <svg className="w-5 h-5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
                                       <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-8.707l-3-3a1 1 0 00-1.414 1.414L10.586 9H7a1 1 0 100 2h3.586l-1.293 1.293a1 1 0 101.414 1.414l3-3a1 1 0 000-1.414z" clipRule="evenodd" />
@@ -1859,10 +2019,26 @@ export default function HomePage() {
                   {circleExpenses.isLoading ? (
                     <ListSkeleton count={3} />
                   ) : circleExpenses.data && circleExpenses.data.length > 0 ? (
-                    circleExpenses.data.map((expense: Expense) => (
-                      <article key={expense.id} className="rounded-lg border border-border bg-muted/40 p-2.5">
+                    circleExpenses.data.map((expense: Expense) => {
+                      // Find any pending claims for this expense
+                      const expenseClaims = circleClaims.data?.filter(c => c.expense_id === expense.id) || [];
+                      const pendingClaim = expenseClaims.find(c => c.status === 'pending');
+                      const isParticipant = expense.participants.some(p => p.account_id === near.accountId);
+                      const isPayer = expense.payer === near.accountId;
+                      const canDispute = isParticipant && !isPayer && !pendingClaim;
+
+                      return (
+                      <article key={expense.id} className={`rounded-lg border ${pendingClaim ? 'border-yellow-500/50 bg-yellow-500/5' : 'border-border bg-muted/40'} p-2.5`}>
                         <div className="flex flex-col gap-1.5 sm:flex-row sm:items-center sm:justify-between">
-                          <h4 className="font-semibold text-fg text-sm">{expense.memo || 'Untitled expense'}</h4>
+                          <div className="flex items-center gap-2">
+                            <h4 className="font-semibold text-fg text-sm">{expense.memo || 'Untitled expense'}</h4>
+                            {pendingClaim && (
+                              <span className="inline-flex items-center gap-1 rounded-full bg-yellow-500/20 px-2 py-0.5 text-xs font-medium text-yellow-500">
+                                <AlertTriangle className="h-3 w-3" />
+                                Disputed
+                              </span>
+                            )}
+                          </div>
                           <div className="flex items-center gap-1.5 text-xs">
                             <span className={`font-bold text-brand-500`}>
                               {formatNearAmount(expense.amount_yocto)} Ⓝ
@@ -1881,8 +2057,62 @@ export default function HomePage() {
                             </div>
                           ))}
                         </div>
+
+                        {/* Pending claim details */}
+                        {pendingClaim && (
+                          <div className="mt-2 rounded-lg border border-yellow-500/30 bg-yellow-500/10 p-2 text-xs">
+                            <p className="text-yellow-400 font-medium mb-1">
+                              Dispute by {pendingClaim.claimant}
+                            </p>
+                            <p className="text-muted-fg">
+                              Reason: <span className="text-fg">{pendingClaim.reason.replace(/_/g, ' ')}</span>
+                            </p>
+                            {pendingClaim.proposed_amount && (
+                              <p className="text-muted-fg">
+                                Proposed amount: <span className="text-fg">{formatNearAmount(pendingClaim.proposed_amount)} Ⓝ</span>
+                              </p>
+                            )}
+                            {isPayer && (
+                              <div className="mt-2 flex gap-2">
+                                <Button
+                                  size="sm"
+                                  variant="primary"
+                                  onClick={() => handleApproveClaim(pendingClaim.id)}
+                                  loading={approveClaimMutation.loading}
+                                >
+                                  Approve
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="secondary"
+                                  onClick={() => handleRejectClaim(pendingClaim.id)}
+                                  loading={rejectClaimMutation.loading}
+                                >
+                                  Reject
+                                </Button>
+                              </div>
+                            )}
+                          </div>
+                        )}
+
+                        {/* Dispute button for participants (not the payer) */}
+                        {canDispute && (
+                          <div className="mt-2">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setClaimTargetExpense(expense);
+                                setClaimModalOpen(true);
+                              }}
+                              className="text-xs text-yellow-500 hover:text-yellow-400 flex items-center gap-1 transition-colors"
+                            >
+                              <AlertTriangle className="h-3 w-3" />
+                              Dispute this expense
+                            </button>
+                          </div>
+                        )}
                       </article>
-                    ))
+                    );})
                   ) : (
                     <div className="py-3 text-center">
                       <EmptyState type="expenses" />
@@ -1919,6 +2149,20 @@ export default function HomePage() {
         onConfirm={confirmationModal.onConfirm}
         transactionType={confirmationModal.type}
         additionalDetails={confirmationModal.details}
+      />
+
+      {/* File Claim Modal */}
+      <FileClaimModal
+        isOpen={claimModalOpen}
+        onClose={() => {
+          setClaimModalOpen(false);
+          setClaimTargetExpense(null);
+        }}
+        onSubmit={handleFileClaim}
+        expenseMemo={claimTargetExpense?.memo || ''}
+        expenseAmount={claimTargetExpense ? formatNearAmount(claimTargetExpense.amount_yocto) : '0'}
+        currentParticipants={claimTargetExpense?.participants || []}
+        loading={fileClaimMutation.loading}
       />
     </main>
   );

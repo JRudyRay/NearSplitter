@@ -33,7 +33,9 @@ jobs:
       - name: Cache Cargo dependencies
         uses: Swatinem/rust-cache@v2
         with:
-          workspaces: contracts/near_splitter
+          workspaces: |
+            contracts/near_splitter
+            contracts/integration-tests
 
       - name: Install binaryen (wasm-opt)
         run: sudo apt-get update && sudo apt-get install -y binaryen
@@ -54,13 +56,13 @@ jobs:
           wasm-opt -Oz -o target/wasm32-unknown-unknown/release/near_splitter_optimized.wasm \
             target/wasm32-unknown-unknown/release/near_splitter.wasm
 
-      - name: Run integration tests
-        working-directory: contracts/near_splitter
-        run: cargo test --test integration --target x86_64-unknown-linux-gnu -- --nocapture
+      - name: Run integration tests (sandbox)
+        working-directory: contracts/integration-tests
+        run: cargo test --test integration -- --nocapture
 
       - name: Clippy check (lib, no dev-deps)
         working-directory: contracts/near_splitter
-        run: cargo clippy --lib --no-deps --target x86_64-unknown-linux-gnu -- -D warnings
+        run: cargo clippy --lib --no-deps --target wasm32-unknown-unknown -- -D warnings
 
   security-audit:
     name: Security Audit

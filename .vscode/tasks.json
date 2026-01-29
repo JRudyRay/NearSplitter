@@ -1,0 +1,115 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "frontend: lint",
+			"type": "shell",
+			"command": "pnpm",
+			"args": [
+				"-C",
+				"frontend",
+				"lint"
+			],
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "test"
+		},
+		{
+			"label": "frontend: lint",
+			"type": "shell",
+			"command": "pnpm",
+			"args": [
+				"-C",
+				"frontend",
+				"lint"
+			],
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "test"
+		},
+		{
+			"label": "frontend: dev (port 3100)",
+			"type": "shell",
+			"command": "pnpm",
+			"args": [
+				"-C",
+				"frontend",
+				"dev",
+				"--",
+				"-p",
+				"3100"
+			],
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "test"
+		},
+		{
+			"label": "frontend: dev (port 3101)",
+			"type": "shell",
+			"command": "pnpm",
+			"args": [
+				"-C",
+				"frontend",
+				"dev",
+				"--",
+				"-p",
+				"3101"
+			],
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "test"
+		},
+		{
+			"label": "frontend: dev smoke (curl)",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-Command",
+				"try { iwr -UseBasicParsing http://localhost:3101/icon/ | Out-Null; iwr -UseBasicParsing http://localhost:3101/apple-icon/ | Out-Null; 'OK' } catch { $_.Exception.Message; exit 1 }"
+			],
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "test"
+		},
+		{
+			"label": "frontend: icon routes check",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-Command",
+				"try { $a = (Invoke-WebRequest -UseBasicParsing http://localhost:3101/icon/).StatusCode; $b = (Invoke-WebRequest -UseBasicParsing http://localhost:3101/apple-icon/).StatusCode; Write-Output \"icon=$a apple=$b\" } catch { Write-Error $_.Exception.Message; exit 1 }"
+			],
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "test"
+		},
+		{
+			"label": "debug: check dev ports",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-Command",
+				"$ports = 3000,3100,3101,3102,3103,3104; foreach($p in $ports){ try { $c = Get-NetTCPConnection -State Listen -LocalPort $p -ErrorAction Stop; if($c){ Write-Output \"LISTEN $p\" } } catch {} }"
+			],
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "test"
+		},
+		{
+			"label": "debug: net cmd availability",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-Command",
+				"Get-Command Get-NetTCPConnection; $LASTEXITCODE"
+			],
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "test"
+		}
+	]
+}

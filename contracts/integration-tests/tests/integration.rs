@@ -4,19 +4,56 @@
  * These tests run against a local NEAR sandbox to verify the contract
  * behaves correctly in realistic scenarios.
  * 
- * Run with: cargo test --test integration
+ * IMPORTANT: The NEAR sandbox is only available on Linux and macOS.
+ * On Windows, these tests will be skipped with a helpful message.
+ * 
+ * To run integration tests on Windows, use one of these approaches:
+ *   1. Run in Docker with a Linux container
+ *   2. Use GitHub Actions or other CI on Linux runners  
+ *   3. Use WSL2 with a Linux distribution
+ * 
+ * Run with: cargo test -p near_splitter_integration_tests
  */
 
 use near_workspaces::{Account, Contract, DevNetwork, Worker};
 use near_workspaces::types::NearToken;
 use serde_json::json;
 
-// Use the optimized WASM built with wasm-opt
-const WASM_FILEPATH: &str = "./target/wasm32-unknown-unknown/release/near_splitter_optimized.wasm";
+// Use the optimized WASM (run wasm-opt after cargo build)
+const WASM_FILEPATH: &str = "../near_splitter/target/wasm32-unknown-unknown/release/near_splitter_optimized.wasm";
+
+/// Try to create a sandbox worker. Returns None on Windows since sandbox is unsupported.
+async fn try_sandbox() -> Option<Worker<near_workspaces::network::Sandbox>> {
+    match near_workspaces::sandbox().await {
+        Ok(worker) => Some(worker),
+        Err(e) => {
+            let err_msg = format!("{e:?}");
+            if err_msg.contains("Unsupported platform") || err_msg.contains("only linux") {
+                eprintln!("⚠️  NEAR sandbox is not supported on this platform (Windows).");
+                eprintln!("   Integration tests require Linux or macOS.");
+                eprintln!("   Skipping test. Use Docker, WSL2, or CI for full testing.");
+                None
+            } else {
+                panic!("Failed to start sandbox: {e}");
+            }
+        }
+    }
+}
+
+/// Macro to skip tests on unsupported platforms
+macro_rules! skip_if_unsupported {
+    ($worker:ident) => {
+        let Some($worker) = try_sandbox().await else {
+            eprintln!("   Test skipped: sandbox unavailable on this platform");
+            return Ok(());
+        };
+    };
+}
 
 /// Helper to deploy and initialize the contract
 async fn init_contract(worker: &Worker<impl DevNetwork>) -> anyhow::Result<Contract> {
-    let wasm = std::fs::read(WASM_FILEPATH)?;
+    let wasm = std::fs::read(WASM_FILEPATH)
+        .map_err(|e| anyhow::anyhow!("Failed to read WASM at {}: {}. Run 'cargo build -p near_splitter --target wasm32-unknown-unknown --release' first.", WASM_FILEPATH, e))?;
     let contract = worker.dev_deploy(&wasm).await?;
     
     // Initialize the contract
@@ -25,16 +62,63 @@ async fn init_contract(worker: &Worker<impl DevNetwork>) -> anyhow::Result<Contr
     Ok(contract)
 }
 
+/// Helper to get minimum required storage deposit from storage_balance_bounds
+async fn storage_min_yocto(contract: &Contract) -> anyhow::Result<u128> {
+    let bounds: serde_json::Value = contract
+        .view("storage_balance_bounds")
+        .args_json(json!({}))
+        .await?
+        .json()?;
+    let min_str = bounds["min"].as_str().ok_or_else(|| anyhow::anyhow!("missing min"))?;
+    let min: u128 = min_str.parse()?;
+    Ok(min)
+}
+
 /// Helper to register an account with the contract (storage deposit)
 async fn register_account(contract: &Contract, account: &Account) -> anyhow::Result<()> {
+    let min = storage_min_yocto(contract).await?;
+    let buffer = NearToken::from_millinear(10).as_yoctonear(); // 0.01 NEAR buffer
     account
         .call(contract.id(), "storage_deposit")
         .args_json(json!({}))
-        .deposit(NearToken::from_millinear(50)) // 0.05 NEAR
+        .deposit(NearToken::from_yoctonear(min + buffer))
         .transact()
         .await?
         .into_result()?;
     Ok(())
+}
+
+/// Helper to assert that a failure result contains a specific substring
+fn assert_failure_contains(res: &near_workspaces::result::ExecutionFinalResult, needle: &str) {
+    assert!(res.is_failure(), "Expected failure but got success");
+    let debug_str = format!("{res:?}");
+    assert!(
+        debug_str.contains(needle),
+        "Expected failure to contain '{}', got: {}",
+        needle,
+        debug_str
+    );
+}
+
+/// Helper to create a circle and return its ID
+async fn create_circle(
+    contract: &Contract,
+    owner: &Account,
+    name: &str,
+    invite_code: Option<&str>,
+) -> anyhow::Result<String> {
+    let args = match invite_code {
+        Some(code) => json!({ "name": name, "invite_code": code }),
+        None => json!({ "name": name }),
+    };
+    let result = owner
+        .call(contract.id(), "create_circle")
+        .args_json(args)
+        .transact()
+        .await?
+        .into_result()?;
+    let circle_id: String = result.json()?;
+    Ok(circle_id)
 }
 
 // ============================================================================
@@ -43,7 +127,7 @@ async fn register_account(contract: &Contract, account: &Account) -> anyhow::Res
 
 #[tokio::test]
 async fn test_storage_deposit_and_balance() -> anyhow::Result<()> {
-    let worker = near_workspaces::sandbox().await?;
+    skip_if_unsupported!(worker);
     let contract = init_contract(&worker).await?;
     let alice = worker.dev_create_account().await?;
     
@@ -73,7 +157,7 @@ async fn test_storage_deposit_and_balance() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_unregistered_account_cannot_create_circle() -> anyhow::Result<()> {
-    let worker = near_workspaces::sandbox().await?;
+    skip_if_unsupported!(worker);
     let contract = init_contract(&worker).await?;
     let alice = worker.dev_create_account().await?;
     
@@ -84,14 +168,14 @@ async fn test_unregistered_account_cannot_create_circle() -> anyhow::Result<()> 
         .transact()
         .await?;
     
-    assert!(result.is_failure(), "Unregistered account should not create circle");
+    assert_failure_contains(&result, "not registered");
     
     Ok(())
 }
 
 #[tokio::test]
 async fn test_storage_unregister() -> anyhow::Result<()> {
-    let worker = near_workspaces::sandbox().await?;
+    skip_if_unsupported!(worker);
     let contract = init_contract(&worker).await?;
     let alice = worker.dev_create_account().await?;
     
@@ -99,15 +183,13 @@ async fn test_storage_unregister() -> anyhow::Result<()> {
     register_account(&contract, &alice).await?;
     
     // Unregister
-    let result = alice
+    alice
         .call(contract.id(), "storage_unregister")
         .args_json(json!({ "force": true }))
         .deposit(NearToken::from_yoctonear(1))
         .transact()
         .await?
         .into_result()?;
-    
-    assert!(result.logs().len() > 0 || true, "Should emit event");
     
     // Verify unregistered
     let balance: Option<serde_json::Value> = contract
@@ -121,13 +203,37 @@ async fn test_storage_unregister() -> anyhow::Result<()> {
     Ok(())
 }
 
+#[tokio::test]
+async fn test_unregistered_account_cannot_join_circle() -> anyhow::Result<()> {
+    skip_if_unsupported!(worker);
+    let contract = init_contract(&worker).await?;
+    let alice = worker.dev_create_account().await?;
+    let bob = worker.dev_create_account().await?;
+    
+    register_account(&contract, &alice).await?;
+    // Bob is NOT registered
+    
+    let circle_id = create_circle(&contract, &alice, "Test Circle", None).await?;
+    
+    // Bob tries to join without registering - should fail
+    let result = bob
+        .call(contract.id(), "join_circle")
+        .args_json(json!({ "circle_id": circle_id }))
+        .transact()
+        .await?;
+    
+    assert_failure_contains(&result, "not registered");
+    
+    Ok(())
+}
+
 // ============================================================================
 // Circle Creation & Management Tests
 // ============================================================================
 
 #[tokio::test]
 async fn test_create_circle() -> anyhow::Result<()> {
-    let worker = near_workspaces::sandbox().await?;
+    skip_if_unsupported!(worker);
     let contract = init_contract(&worker).await?;
     let alice = worker.dev_create_account().await?;
     
@@ -160,7 +266,7 @@ async fn test_create_circle() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_create_private_circle_with_password() -> anyhow::Result<()> {
-    let worker = near_workspaces::sandbox().await?;
+    skip_if_unsupported!(worker);
     let contract = init_contract(&worker).await?;
     let alice = worker.dev_create_account().await?;
     
@@ -193,7 +299,7 @@ async fn test_create_private_circle_with_password() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_join_circle_public() -> anyhow::Result<()> {
-    let worker = near_workspaces::sandbox().await?;
+    skip_if_unsupported!(worker);
     let contract = init_contract(&worker).await?;
     let alice = worker.dev_create_account().await?;
     let bob = worker.dev_create_account().await?;
@@ -202,13 +308,7 @@ async fn test_join_circle_public() -> anyhow::Result<()> {
     register_account(&contract, &bob).await?;
     
     // Alice creates circle
-    let result = alice
-        .call(contract.id(), "create_circle")
-        .args_json(json!({ "name": "Public Circle" }))
-        .transact()
-        .await?
-        .into_result()?;
-    let circle_id: String = result.json()?;
+    let circle_id = create_circle(&contract, &alice, "Public Circle", None).await?;
     
     // Bob joins
     bob.call(contract.id(), "join_circle")
@@ -231,7 +331,7 @@ async fn test_join_circle_public() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_join_private_circle_wrong_password() -> anyhow::Result<()> {
-    let worker = near_workspaces::sandbox().await?;
+    skip_if_unsupported!(worker);
     let contract = init_contract(&worker).await?;
     let alice = worker.dev_create_account().await?;
     let bob = worker.dev_create_account().await?;
@@ -240,16 +340,7 @@ async fn test_join_private_circle_wrong_password() -> anyhow::Result<()> {
     register_account(&contract, &bob).await?;
     
     // Alice creates private circle
-    let result = alice
-        .call(contract.id(), "create_circle")
-        .args_json(json!({ 
-            "name": "Private Circle",
-            "invite_code": "correct_password"
-        }))
-        .transact()
-        .await?
-        .into_result()?;
-    let circle_id: String = result.json()?;
+    let circle_id = create_circle(&contract, &alice, "Private Circle", Some("correct_password")).await?;
     
     // Bob tries to join with wrong password
     let join_result = bob
@@ -261,14 +352,14 @@ async fn test_join_private_circle_wrong_password() -> anyhow::Result<()> {
         .transact()
         .await?;
     
-    assert!(join_result.is_failure(), "Should fail with wrong password");
+    assert_failure_contains(&join_result, "invite code");
     
     Ok(())
 }
 
 #[tokio::test]
 async fn test_join_private_circle_correct_password() -> anyhow::Result<()> {
-    let worker = near_workspaces::sandbox().await?;
+    skip_if_unsupported!(worker);
     let contract = init_contract(&worker).await?;
     let alice = worker.dev_create_account().await?;
     let bob = worker.dev_create_account().await?;
@@ -277,16 +368,7 @@ async fn test_join_private_circle_correct_password() -> anyhow::Result<()> {
     register_account(&contract, &bob).await?;
     
     // Alice creates private circle
-    let result = alice
-        .call(contract.id(), "create_circle")
-        .args_json(json!({ 
-            "name": "Private Circle",
-            "invite_code": "secret123"
-        }))
-        .transact()
-        .await?
-        .into_result()?;
-    let circle_id: String = result.json()?;
+    let circle_id = create_circle(&contract, &alice, "Private Circle", Some("secret123")).await?;
     
     // Bob joins with correct password
     bob.call(contract.id(), "join_circle")
@@ -312,7 +394,7 @@ async fn test_join_private_circle_correct_password() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_cannot_join_circle_twice() -> anyhow::Result<()> {
-    let worker = near_workspaces::sandbox().await?;
+    skip_if_unsupported!(worker);
     let contract = init_contract(&worker).await?;
     let alice = worker.dev_create_account().await?;
     let bob = worker.dev_create_account().await?;
@@ -320,13 +402,7 @@ async fn test_cannot_join_circle_twice() -> anyhow::Result<()> {
     register_account(&contract, &alice).await?;
     register_account(&contract, &bob).await?;
     
-    let result = alice
-        .call(contract.id(), "create_circle")
-        .args_json(json!({ "name": "Test" }))
-        .transact()
-        .await?
-        .into_result()?;
-    let circle_id: String = result.json()?;
+    let circle_id = create_circle(&contract, &alice, "Test", None).await?;
     
     // Bob joins first time
     bob.call(contract.id(), "join_circle")
@@ -342,7 +418,7 @@ async fn test_cannot_join_circle_twice() -> anyhow::Result<()> {
         .transact()
         .await?;
     
-    assert!(second_join.is_failure(), "Should not join twice");
+    assert_failure_contains(&second_join, "already a member");
     
     Ok(())
 }
@@ -353,7 +429,7 @@ async fn test_cannot_join_circle_twice() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_add_expense_equal_split() -> anyhow::Result<()> {
-    let worker = near_workspaces::sandbox().await?;
+    skip_if_unsupported!(worker);
     let contract = init_contract(&worker).await?;
     let alice = worker.dev_create_account().await?;
     let bob = worker.dev_create_account().await?;
@@ -362,13 +438,7 @@ async fn test_add_expense_equal_split() -> anyhow::Result<()> {
     register_account(&contract, &bob).await?;
     
     // Create circle and have Bob join
-    let result = alice
-        .call(contract.id(), "create_circle")
-        .args_json(json!({ "name": "Dinner" }))
-        .transact()
-        .await?
-        .into_result()?;
-    let circle_id: String = result.json()?;
+    let circle_id = create_circle(&contract, &alice, "Dinner", None).await?;
     
     bob.call(contract.id(), "join_circle")
         .args_json(json!({ "circle_id": circle_id }))
@@ -406,8 +476,105 @@ async fn test_add_expense_equal_split() -> anyhow::Result<()> {
 }
 
 #[tokio::test]
+async fn test_autopay_pending_payout_and_withdraw() -> anyhow::Result<()> {
+    skip_if_unsupported!(worker);
+    let contract = init_contract(&worker).await?;
+    let alice = worker.dev_create_account().await?;
+    let bob = worker.dev_create_account().await?;
+
+    register_account(&contract, &alice).await?;
+    register_account(&contract, &bob).await?;
+
+    let circle_id = create_circle(&contract, &alice, "Autopay Test", None).await?;
+
+    bob.call(contract.id(), "join_circle")
+        .args_json(json!({ "circle_id": circle_id }))
+        .transact()
+        .await?
+        .into_result()?;
+
+    let amount = "1000000000000000000000000"; // 1 NEAR in yoctoNEAR
+    alice
+        .call(contract.id(), "add_expense")
+        .args_json(json!({
+            "circle_id": circle_id,
+            "amount_yocto": amount,
+            "shares": [
+                { "account_id": alice.id(), "weight_bps": 5000 },
+                { "account_id": bob.id(), "weight_bps": 5000 }
+            ],
+            "memo": "Lunch"
+        }))
+        .transact()
+        .await?
+        .into_result()?;
+
+    // Creditor confirms (no deposit needed)
+    alice
+        .call(contract.id(), "confirm_ledger")
+        .args_json(json!({ "circle_id": circle_id }))
+        .transact()
+        .await?
+        .into_result()?;
+
+    // Debtor confirms with escrow deposit (0.5 NEAR)
+    let debt = 500_000_000_000_000_000_000_000u128;
+    bob
+        .call(contract.id(), "confirm_ledger")
+        .args_json(json!({ "circle_id": circle_id }))
+        .deposit(NearToken::from_yoctonear(debt))
+        .transact()
+        .await?
+        .into_result()?;
+
+    let pending: serde_json::Value = contract
+        .view("get_pending_payout")
+        .args_json(json!({ "account_id": alice.id() }))
+        .await?
+        .json()?;
+    let pending_amount: u128 = pending.as_str().unwrap().parse().unwrap();
+    assert_eq!(pending_amount, debt);
+
+    // Capture Alice's balance before withdrawal
+    let alice_before = alice.view_account().await?.balance.as_yoctonear();
+
+    alice
+        .call(contract.id(), "withdraw_payout")
+        .args_json(json!({}))
+        .deposit(NearToken::from_yoctonear(1))
+        .transact()
+        .await?
+        .into_result()?;
+
+    // Capture Alice's balance after withdrawal
+    let alice_after = alice.view_account().await?.balance.as_yoctonear();
+
+    // Alice should have received approximately `debt` yoctoNEAR.
+    // She pays gas for the withdraw call, so her net gain is: debt - gas_cost.
+    // We assert she gained at least 99% of the debt (gas is typically ~0.1% of 0.5 NEAR).
+    let min_expected = debt * 99 / 100;
+    assert!(
+        alice_after >= alice_before + min_expected,
+        "Alice should gain ~{} yoctoNEAR from withdrawal; before={}, after={}",
+        debt,
+        alice_before,
+        alice_after
+    );
+
+    let pending_after: serde_json::Value = contract
+        .view("get_pending_payout")
+        .args_json(json!({ "account_id": alice.id() }))
+        .await?
+        .json()?;
+    let pending_after_amount: u128 = pending_after.as_str().unwrap().parse().unwrap();
+    assert_eq!(pending_after_amount, 0);
+
+    Ok(())
+}
+
+#[tokio::test]
 async fn test_add_expense_invalid_shares() -> anyhow::Result<()> {
-    let worker = near_workspaces::sandbox().await?;
+    skip_if_unsupported!(worker);
     let contract = init_contract(&worker).await?;
     let alice = worker.dev_create_account().await?;
     let bob = worker.dev_create_account().await?;
@@ -415,16 +582,10 @@ async fn test_add_expense_invalid_shares() -> anyhow::Result<()> {
     register_account(&contract, &alice).await?;
     register_account(&contract, &bob).await?;
     
-    let result = alice
-        .call(contract.id(), "create_circle")
-        .args_json(json!({ "name": "Test" }))
-        .transact()
-        .await?
-        .into_result()?;
-    let circle_id: String = result.json()?;
+    let circle_id = create_circle(&contract, &alice, "Test", None).await?;
     
     bob.call(contract.id(), "join_circle")
-        .args_json(json!({ "circle_id": circle_id }))
+        .args_json(json!({ "circle_id": &circle_id }))
         .transact()
         .await?
         .into_result()?;
@@ -443,14 +604,14 @@ async fn test_add_expense_invalid_shares() -> anyhow::Result<()> {
         .transact()
         .await?;
     
-    assert!(result.is_failure(), "Should fail with invalid shares");
+    assert_failure_contains(&result, "must sum to 10000");
     
     Ok(())
 }
 
 #[tokio::test]
 async fn test_non_member_cannot_add_expense() -> anyhow::Result<()> {
-    let worker = near_workspaces::sandbox().await?;
+    skip_if_unsupported!(worker);
     let contract = init_contract(&worker).await?;
     let alice = worker.dev_create_account().await?;
     let charlie = worker.dev_create_account().await?;
@@ -458,13 +619,7 @@ async fn test_non_member_cannot_add_expense() -> anyhow::Result<()> {
     register_account(&contract, &alice).await?;
     register_account(&contract, &charlie).await?;
     
-    let result = alice
-        .call(contract.id(), "create_circle")
-        .args_json(json!({ "name": "Test" }))
-        .transact()
-        .await?
-        .into_result()?;
-    let circle_id: String = result.json()?;
+    let circle_id = create_circle(&contract, &alice, "Test", None).await?;
     
     // Charlie (not a member) tries to add expense
     let result = charlie.call(contract.id(), "add_expense")
@@ -477,7 +632,134 @@ async fn test_non_member_cannot_add_expense() -> anyhow::Result<()> {
         .transact()
         .await?;
     
-    assert!(result.is_failure(), "Non-member should not add expense");
+    assert_failure_contains(&result, "not a member");
+    
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_add_expense_shares_non_member_fails() -> anyhow::Result<()> {
+    skip_if_unsupported!(worker);
+    let contract = init_contract(&worker).await?;
+    let alice = worker.dev_create_account().await?;
+    let bob = worker.dev_create_account().await?;
+    
+    register_account(&contract, &alice).await?;
+    register_account(&contract, &bob).await?;
+    
+    let circle_id = create_circle(&contract, &alice, "Test", None).await?;
+    // Bob is registered but NOT a member of this circle
+    
+    // Try to add expense with shares including non-member Bob
+    let result = alice.call(contract.id(), "add_expense")
+        .args_json(json!({
+            "circle_id": &circle_id,
+            "amount_yocto": "1000000000000000000000000",
+            "shares": [
+                { "account_id": alice.id(), "weight_bps": 5000 },
+                { "account_id": bob.id(), "weight_bps": 5000 }
+            ],
+            "memo": "Bad shares"
+        }))
+        .transact()
+        .await?;
+    
+    assert_failure_contains(&result, "not a member");
+    
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_add_expense_duplicate_account_in_shares_fails() -> anyhow::Result<()> {
+    skip_if_unsupported!(worker);
+    let contract = init_contract(&worker).await?;
+    let alice = worker.dev_create_account().await?;
+    
+    register_account(&contract, &alice).await?;
+    
+    let circle_id = create_circle(&contract, &alice, "Test", None).await?;
+    
+    // Try to add expense with duplicate account in shares
+    let result = alice.call(contract.id(), "add_expense")
+        .args_json(json!({
+            "circle_id": &circle_id,
+            "amount_yocto": "1000000000000000000000000",
+            "shares": [
+                { "account_id": alice.id(), "weight_bps": 5000 },
+                { "account_id": alice.id(), "weight_bps": 5000 }
+            ],
+            "memo": "Duplicate account"
+        }))
+        .transact()
+        .await?;
+    
+    // TODO: If contract allows duplicate accounts, update this assertion to match actual behavior
+    assert_failure_contains(&result, "duplicate");
+    
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_add_expense_zero_weight_bps_fails() -> anyhow::Result<()> {
+    skip_if_unsupported!(worker);
+    let contract = init_contract(&worker).await?;
+    let alice = worker.dev_create_account().await?;
+    let bob = worker.dev_create_account().await?;
+    
+    register_account(&contract, &alice).await?;
+    register_account(&contract, &bob).await?;
+    
+    let circle_id = create_circle(&contract, &alice, "Test", None).await?;
+    
+    bob.call(contract.id(), "join_circle")
+        .args_json(json!({ "circle_id": &circle_id }))
+        .transact()
+        .await?
+        .into_result()?;
+    
+    // Try to add expense with zero weight_bps
+    let result = alice.call(contract.id(), "add_expense")
+        .args_json(json!({
+            "circle_id": &circle_id,
+            "amount_yocto": "1000000000000000000000000",
+            "shares": [
+                { "account_id": alice.id(), "weight_bps": 10000 },
+                { "account_id": bob.id(), "weight_bps": 0 }
+            ],
+            "memo": "Zero weight"
+        }))
+        .transact()
+        .await?;
+    
+    assert_failure_contains(&result, "weight");
+    
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_add_expense_weight_bps_over_10000_fails() -> anyhow::Result<()> {
+    skip_if_unsupported!(worker);
+    let contract = init_contract(&worker).await?;
+    let alice = worker.dev_create_account().await?;
+    
+    register_account(&contract, &alice).await?;
+    
+    let circle_id = create_circle(&contract, &alice, "Test", None).await?;
+    
+    // Try to add expense with weight_bps > 10000
+    let result = alice.call(contract.id(), "add_expense")
+        .args_json(json!({
+            "circle_id": &circle_id,
+            "amount_yocto": "1000000000000000000000000",
+            "shares": [
+                { "account_id": alice.id(), "weight_bps": 15000 }
+            ],
+            "memo": "Overweight"
+        }))
+        .transact()
+        .await?;
+    
+    assert_failure_contains(&result, "must sum to 10000");
     
     Ok(())
 }
@@ -488,7 +770,7 @@ async fn test_non_member_cannot_add_expense() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_compute_balances_simple() -> anyhow::Result<()> {
-    let worker = near_workspaces::sandbox().await?;
+    skip_if_unsupported!(worker);
     let contract = init_contract(&worker).await?;
     let alice = worker.dev_create_account().await?;
     let bob = worker.dev_create_account().await?;
@@ -551,7 +833,7 @@ async fn test_compute_balances_simple() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_suggest_settlements() -> anyhow::Result<()> {
-    let worker = near_workspaces::sandbox().await?;
+    skip_if_unsupported!(worker);
     let contract = init_contract(&worker).await?;
     let alice = worker.dev_create_account().await?;
     let bob = worker.dev_create_account().await?;
@@ -559,16 +841,10 @@ async fn test_suggest_settlements() -> anyhow::Result<()> {
     register_account(&contract, &alice).await?;
     register_account(&contract, &bob).await?;
     
-    let result = alice
-        .call(contract.id(), "create_circle")
-        .args_json(json!({ "name": "Test" }))
-        .transact()
-        .await?
-        .into_result()?;
-    let circle_id: String = result.json()?;
+    let circle_id = create_circle(&contract, &alice, "Test", None).await?;
     
     bob.call(contract.id(), "join_circle")
-        .args_json(json!({ "circle_id": circle_id }))
+        .args_json(json!({ "circle_id": &circle_id }))
         .transact()
         .await?
         .into_result()?;
@@ -576,7 +852,7 @@ async fn test_suggest_settlements() -> anyhow::Result<()> {
     // Alice pays 2 NEAR, split equally
     alice.call(contract.id(), "add_expense")
         .args_json(json!({
-            "circle_id": circle_id,
+            "circle_id": &circle_id,
             "amount_yocto": "2000000000000000000000000",
             "shares": [
                 { "account_id": alice.id(), "weight_bps": 5000 },
@@ -609,7 +885,7 @@ async fn test_suggest_settlements() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_pay_native_settlement() -> anyhow::Result<()> {
-    let worker = near_workspaces::sandbox().await?;
+    skip_if_unsupported!(worker);
     let contract = init_contract(&worker).await?;
     let alice = worker.dev_create_account().await?;
     let bob = worker.dev_create_account().await?;
@@ -617,16 +893,10 @@ async fn test_pay_native_settlement() -> anyhow::Result<()> {
     register_account(&contract, &alice).await?;
     register_account(&contract, &bob).await?;
     
-    let result = alice
-        .call(contract.id(), "create_circle")
-        .args_json(json!({ "name": "Test" }))
-        .transact()
-        .await?
-        .into_result()?;
-    let circle_id: String = result.json()?;
+    let circle_id = create_circle(&contract, &alice, "Test", None).await?;
     
     bob.call(contract.id(), "join_circle")
-        .args_json(json!({ "circle_id": circle_id }))
+        .args_json(json!({ "circle_id": &circle_id }))
         .transact()
         .await?
         .into_result()?;
@@ -646,9 +916,10 @@ async fn test_pay_native_settlement() -> anyhow::Result<()> {
         .await?
         .into_result()?;
     
-    let alice_balance_before = alice.view_account().await?.balance;
+    let alice_balance_before = alice.view_account().await?.balance.as_yoctonear();
     
     // Bob pays Alice 1 NEAR
+    let deposit_amount = NearToken::from_near(1).as_yoctonear();
     bob.call(contract.id(), "pay_native")
         .args_json(json!({
             "circle_id": circle_id,
@@ -659,18 +930,25 @@ async fn test_pay_native_settlement() -> anyhow::Result<()> {
         .await?
         .into_result()?;
     
-    let alice_balance_after = alice.view_account().await?.balance;
+    let alice_balance_after = alice.view_account().await?.balance.as_yoctonear();
     
-    // Alice should have received ~1 NEAR (minus some gas)
-    let received = alice_balance_after.as_yoctonear() - alice_balance_before.as_yoctonear();
-    assert!(received > NearToken::from_millinear(990).as_yoctonear(), "Alice should receive ~1 NEAR");
+    // On NEAR, the caller (Bob) pays all gas fees, so Alice should receive exactly
+    // the attached deposit. We allow a tiny tolerance (1 yoctoNEAR) for any potential
+    // rounding in sandbox, but in practice this should be exact.
+    let received = alice_balance_after - alice_balance_before;
+    assert!(
+        received >= deposit_amount && received <= deposit_amount + 1,
+        "Alice should receive exactly 1 NEAR; got {} yoctoNEAR (expected {})",
+        received,
+        deposit_amount
+    );
     
     Ok(())
 }
 
 #[tokio::test]
 async fn test_non_member_cannot_pay() -> anyhow::Result<()> {
-    let worker = near_workspaces::sandbox().await?;
+    skip_if_unsupported!(worker);
     let contract = init_contract(&worker).await?;
     let alice = worker.dev_create_account().await?;
     let charlie = worker.dev_create_account().await?;
@@ -697,7 +975,7 @@ async fn test_non_member_cannot_pay() -> anyhow::Result<()> {
         .transact()
         .await?;
     
-    assert!(result.is_failure(), "Non-member should not pay");
+    assert_failure_contains(&result, "not a member");
     
     Ok(())
 }
@@ -708,7 +986,7 @@ async fn test_non_member_cannot_pay() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_leave_circle() -> anyhow::Result<()> {
-    let worker = near_workspaces::sandbox().await?;
+    skip_if_unsupported!(worker);
     let contract = init_contract(&worker).await?;
     let alice = worker.dev_create_account().await?;
     let bob = worker.dev_create_account().await?;
@@ -716,23 +994,17 @@ async fn test_leave_circle() -> anyhow::Result<()> {
     register_account(&contract, &alice).await?;
     register_account(&contract, &bob).await?;
     
-    let result = alice
-        .call(contract.id(), "create_circle")
-        .args_json(json!({ "name": "Test" }))
-        .transact()
-        .await?
-        .into_result()?;
-    let circle_id: String = result.json()?;
+    let circle_id = create_circle(&contract, &alice, "Test", None).await?;
     
     bob.call(contract.id(), "join_circle")
-        .args_json(json!({ "circle_id": circle_id }))
+        .args_json(json!({ "circle_id": &circle_id }))
         .transact()
         .await?
         .into_result()?;
     
     // Bob leaves
     bob.call(contract.id(), "leave_circle")
-        .args_json(json!({ "circle_id": circle_id }))
+        .args_json(json!({ "circle_id": &circle_id }))
         .transact()
         .await?
         .into_result()?;
@@ -751,7 +1023,7 @@ async fn test_leave_circle() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_cannot_leave_with_balance() -> anyhow::Result<()> {
-    let worker = near_workspaces::sandbox().await?;
+    skip_if_unsupported!(worker);
     let contract = init_contract(&worker).await?;
     let alice = worker.dev_create_account().await?;
     let bob = worker.dev_create_account().await?;
@@ -759,16 +1031,10 @@ async fn test_cannot_leave_with_balance() -> anyhow::Result<()> {
     register_account(&contract, &alice).await?;
     register_account(&contract, &bob).await?;
     
-    let result = alice
-        .call(contract.id(), "create_circle")
-        .args_json(json!({ "name": "Test" }))
-        .transact()
-        .await?
-        .into_result()?;
-    let circle_id: String = result.json()?;
+    let circle_id = create_circle(&contract, &alice, "Test", None).await?;
     
     bob.call(contract.id(), "join_circle")
-        .args_json(json!({ "circle_id": circle_id }))
+        .args_json(json!({ "circle_id": &circle_id }))
         .transact()
         .await?
         .into_result()?;
@@ -776,7 +1042,7 @@ async fn test_cannot_leave_with_balance() -> anyhow::Result<()> {
     // Add expense - Bob now owes Alice
     alice.call(contract.id(), "add_expense")
         .args_json(json!({
-            "circle_id": circle_id,
+            "circle_id": &circle_id,
             "amount_yocto": "2000000000000000000000000",
             "shares": [
                 { "account_id": alice.id(), "weight_bps": 5000 },
@@ -791,46 +1057,40 @@ async fn test_cannot_leave_with_balance() -> anyhow::Result<()> {
     // Bob tries to leave with outstanding balance
     let result = bob
         .call(contract.id(), "leave_circle")
-        .args_json(json!({ "circle_id": circle_id }))
+        .args_json(json!({ "circle_id": &circle_id }))
         .transact()
         .await?;
     
-    assert!(result.is_failure(), "Should not leave with balance");
+    assert_failure_contains(&result, "outstanding balance");
     
     Ok(())
 }
 
 #[tokio::test]
 async fn test_owner_cannot_leave() -> anyhow::Result<()> {
-    let worker = near_workspaces::sandbox().await?;
+    skip_if_unsupported!(worker);
     let contract = init_contract(&worker).await?;
     let alice = worker.dev_create_account().await?;
     
     register_account(&contract, &alice).await?;
     
-    let result = alice
-        .call(contract.id(), "create_circle")
-        .args_json(json!({ "name": "Test" }))
-        .transact()
-        .await?
-        .into_result()?;
-    let circle_id: String = result.json()?;
+    let circle_id = create_circle(&contract, &alice, "Test", None).await?;
     
     // Owner tries to leave
     let result = alice
         .call(contract.id(), "leave_circle")
-        .args_json(json!({ "circle_id": circle_id }))
+        .args_json(json!({ "circle_id": &circle_id }))
         .transact()
         .await?;
     
-    assert!(result.is_failure(), "Owner should not leave");
+    assert_failure_contains(&result, "Owner cannot leave");
     
     Ok(())
 }
 
 #[tokio::test]
 async fn test_transfer_ownership() -> anyhow::Result<()> {
-    let worker = near_workspaces::sandbox().await?;
+    skip_if_unsupported!(worker);
     let contract = init_contract(&worker).await?;
     let alice = worker.dev_create_account().await?;
     let bob = worker.dev_create_account().await?;
@@ -838,16 +1098,10 @@ async fn test_transfer_ownership() -> anyhow::Result<()> {
     register_account(&contract, &alice).await?;
     register_account(&contract, &bob).await?;
     
-    let result = alice
-        .call(contract.id(), "create_circle")
-        .args_json(json!({ "name": "Test" }))
-        .transact()
-        .await?
-        .into_result()?;
-    let circle_id: String = result.json()?;
+    let circle_id = create_circle(&contract, &alice, "Test", None).await?;
     
     bob.call(contract.id(), "join_circle")
-        .args_json(json!({ "circle_id": circle_id }))
+        .args_json(json!({ "circle_id": &circle_id }))
         .transact()
         .await?
         .into_result()?;
@@ -855,7 +1109,7 @@ async fn test_transfer_ownership() -> anyhow::Result<()> {
     // Transfer ownership to Bob
     alice.call(contract.id(), "transfer_ownership")
         .args_json(json!({
-            "circle_id": circle_id,
+            "circle_id": &circle_id,
             "new_owner": bob.id()
         }))
         .transact()
@@ -865,11 +1119,127 @@ async fn test_transfer_ownership() -> anyhow::Result<()> {
     // Verify Bob is now owner
     let circle: serde_json::Value = contract
         .view("get_circle")
-        .args_json(json!({ "circle_id": circle_id }))
+        .args_json(json!({ "circle_id": &circle_id }))
         .await?
         .json()?;
     
     assert_eq!(circle["owner"].as_str().unwrap(), bob.id().as_str());
+    
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_non_owner_cannot_transfer_ownership() -> anyhow::Result<()> {
+    skip_if_unsupported!(worker);
+    let contract = init_contract(&worker).await?;
+    let alice = worker.dev_create_account().await?;
+    let bob = worker.dev_create_account().await?;
+    let charlie = worker.dev_create_account().await?;
+    
+    register_account(&contract, &alice).await?;
+    register_account(&contract, &bob).await?;
+    register_account(&contract, &charlie).await?;
+    
+    let circle_id = create_circle(&contract, &alice, "Test", None).await?;
+    
+    bob.call(contract.id(), "join_circle")
+        .args_json(json!({ "circle_id": &circle_id }))
+        .transact()
+        .await?
+        .into_result()?;
+    
+    charlie.call(contract.id(), "join_circle")
+        .args_json(json!({ "circle_id": &circle_id }))
+        .transact()
+        .await?
+        .into_result()?;
+    
+    // Bob (not owner) tries to transfer ownership
+    let result = bob
+        .call(contract.id(), "transfer_ownership")
+        .args_json(json!({
+            "circle_id": &circle_id,
+            "new_owner": charlie.id()
+        }))
+        .transact()
+        .await?;
+    
+    assert_failure_contains(&result, "Only owner");
+    
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_transfer_ownership_to_non_member_fails() -> anyhow::Result<()> {
+    skip_if_unsupported!(worker);
+    let contract = init_contract(&worker).await?;
+    let alice = worker.dev_create_account().await?;
+    let bob = worker.dev_create_account().await?;
+    
+    register_account(&contract, &alice).await?;
+    register_account(&contract, &bob).await?;
+    
+    let circle_id = create_circle(&contract, &alice, "Test", None).await?;
+    // Bob is registered but NOT a member of the circle
+    
+    let result = alice
+        .call(contract.id(), "transfer_ownership")
+        .args_json(json!({
+            "circle_id": &circle_id,
+            "new_owner": bob.id()
+        }))
+        .transact()
+        .await?;
+    
+    assert_failure_contains(&result, "not a member");
+    
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_owner_can_transfer_and_then_leave() -> anyhow::Result<()> {
+    skip_if_unsupported!(worker);
+    let contract = init_contract(&worker).await?;
+    let alice = worker.dev_create_account().await?;
+    let bob = worker.dev_create_account().await?;
+    
+    register_account(&contract, &alice).await?;
+    register_account(&contract, &bob).await?;
+    
+    let circle_id = create_circle(&contract, &alice, "Test", None).await?;
+    
+    bob.call(contract.id(), "join_circle")
+        .args_json(json!({ "circle_id": &circle_id }))
+        .transact()
+        .await?
+        .into_result()?;
+    
+    // Transfer ownership to Bob
+    alice.call(contract.id(), "transfer_ownership")
+        .args_json(json!({
+            "circle_id": &circle_id,
+            "new_owner": bob.id()
+        }))
+        .transact()
+        .await?
+        .into_result()?;
+    
+    // Now Alice (no longer owner) can leave
+    alice.call(contract.id(), "leave_circle")
+        .args_json(json!({ "circle_id": &circle_id }))
+        .transact()
+        .await?
+        .into_result()?;
+    
+    // Verify Alice is no longer a member
+    let circle: serde_json::Value = contract
+        .view("get_circle")
+        .args_json(json!({ "circle_id": &circle_id }))
+        .await?
+        .json()?;
+    
+    assert_eq!(circle["owner"].as_str().unwrap(), bob.id().as_str());
+    assert_eq!(circle["members"].as_array().unwrap().len(), 1);
     
     Ok(())
 }
@@ -880,7 +1250,7 @@ async fn test_transfer_ownership() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_empty_circle_name_rejected() -> anyhow::Result<()> {
-    let worker = near_workspaces::sandbox().await?;
+    skip_if_unsupported!(worker);
     let contract = init_contract(&worker).await?;
     let alice = worker.dev_create_account().await?;
     
@@ -892,14 +1262,14 @@ async fn test_empty_circle_name_rejected() -> anyhow::Result<()> {
         .transact()
         .await?;
     
-    assert!(result.is_failure(), "Empty name should be rejected");
+    assert_failure_contains(&result, "name cannot be empty");
     
     Ok(())
 }
 
 #[tokio::test]
 async fn test_zero_amount_expense_rejected() -> anyhow::Result<()> {
-    let worker = near_workspaces::sandbox().await?;
+    skip_if_unsupported!(worker);
     let contract = init_contract(&worker).await?;
     let alice = worker.dev_create_account().await?;
     
@@ -923,14 +1293,14 @@ async fn test_zero_amount_expense_rejected() -> anyhow::Result<()> {
         .transact()
         .await?;
     
-    assert!(result.is_failure(), "Zero amount should be rejected");
+    assert_failure_contains(&result, "must be positive");
     
     Ok(())
 }
 
 #[tokio::test]
 async fn test_list_circles_by_member() -> anyhow::Result<()> {
-    let worker = near_workspaces::sandbox().await?;
+    skip_if_unsupported!(worker);
     let contract = init_contract(&worker).await?;
     let alice = worker.dev_create_account().await?;
     let bob = worker.dev_create_account().await?;
@@ -988,7 +1358,7 @@ async fn test_list_circles_by_member() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_full_expense_splitting_workflow() -> anyhow::Result<()> {
-    let worker = near_workspaces::sandbox().await?;
+    skip_if_unsupported!(worker);
     let contract = init_contract(&worker).await?;
     
     // Create 3 users
@@ -1077,6 +1447,16 @@ async fn test_full_expense_splitting_workflow() -> anyhow::Result<()> {
     
     // There should be settlements (Charlie owes the most since he paid nothing)
     assert!(!suggestions.is_empty(), "Should have settlement suggestions");
+
+    // Compute total absolute net before any settlement
+    fn total_abs_net(balances: &[serde_json::Value]) -> u128 {
+        balances.iter().map(|b| {
+            let net_str = b["net"].as_str().unwrap_or("0");
+            let net: i128 = net_str.parse().unwrap_or(0);
+            net.unsigned_abs()
+        }).sum()
+    }
+    let total_before = total_abs_net(&balances);
     
     // Charlie settles with Alice
     let charlie_owes_alice = suggestions.iter()
@@ -1098,9 +1478,27 @@ async fn test_full_expense_splitting_workflow() -> anyhow::Result<()> {
             .transact()
             .await?
             .into_result()?;
+
+        // Re-check balances after settlement
+        let balances_after: Vec<serde_json::Value> = contract
+            .view("compute_balances")
+            .args_json(json!({ "circle_id": &circle_id }))
+            .await?
+            .json()?;
+        
+        let total_after = total_abs_net(&balances_after);
+        
+        // After a settlement, total absolute net should decrease (debts reduced)
+        assert!(
+            total_after < total_before,
+            "Total absolute net should decrease after settlement: before={}, after={}",
+            total_before,
+            total_after
+        );
     }
     
     println!("✅ Full workflow test completed successfully!");
     
     Ok(())
 }
+

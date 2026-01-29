@@ -14,10 +14,12 @@ build/
 # Rust
 target/
 **/target/
-Cargo.lock
-**/Cargo.lock
 
-# WASM Build Artifacts
+# Keep integration-tests Cargo.lock for reproducible CI builds
+Cargo.lock
+!contracts/integration-tests/Cargo.lock
+
+# WASM Build Artifacts (built in CI, not committed)
 *.wasm
 **/*.wasm
 
@@ -38,12 +40,15 @@ frontend/.env
 !frontend/.env.production
 
 # IDE
-.vscode/
 .idea/
 .DS_Store
 Thumbs.db
 *.swp
 *.swo
+
+# Keep VS Code tasks for team
+.vscode/*
+!.vscode/tasks.json
 
 # OS
 .DS_Store

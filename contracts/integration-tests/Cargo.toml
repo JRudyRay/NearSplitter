@@ -1,0 +1,16 @@
+[package]
+name = "near_splitter_integration_tests"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+# Use latest version with default-features disabled to avoid wasm-opt/cxx dependency issues
+near-workspaces = { version = "0.22", default-features = false }
+tokio = { version = "1", features = ["full"] }
+serde_json = "1"
+anyhow = "1"
+
+[[test]]
+name = "integration"
+path = "tests/integration.rs"

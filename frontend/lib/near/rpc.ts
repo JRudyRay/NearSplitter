@@ -139,6 +139,71 @@ async function rpcRequest<T>(method: string, params: Record<string, unknown>): P
   throw new Error(`RPC request failed for method "${method}" with unknown error`);
 }
 
+// ─── Error Decoding Utilities ──────────────────────────────────────────────────
+// UPDATED: Added utilities to decode and humanize NEAR contract errors
+
+/** Common contract error patterns and their user-friendly messages */
+const ERROR_PATTERNS: Array<{ pattern: RegExp; message: string }> = [
+  { pattern: /Circle not found/i, message: 'Circle not found. It may have been deleted.' },
+  { pattern: /Account must call storage_deposit first/i, message: 'Please register your account first (storage deposit required).' },
+  { pattern: /Circle is locked for settlement/i, message: 'This circle is currently in settlement mode. Try again after settlement completes.' },
+  { pattern: /Circle is not accepting new members/i, message: 'This circle is not accepting new members.' },
+  { pattern: /Already a member/i, message: 'You are already a member of this circle.' },
+  { pattern: /Invalid invite code/i, message: 'The invite code is incorrect.' },
+  { pattern: /Only (circle )?owner can/i, message: 'Only the circle owner can perform this action.' },
+  { pattern: /Only expense participants can/i, message: 'Only participants of this expense can file claims.' },
+  { pattern: /Only the expense payer can/i, message: 'Only the expense payer can resolve this claim.' },
+  { pattern: /Cannot confirm ledger.*pending claims/i, message: 'Cannot confirm: resolve all pending claims first.' },
+  { pattern: /Settlement is already in progress/i, message: 'Settlement is already in progress for this circle.' },
+  { pattern: /Cannot join during settlement/i, message: 'Cannot join while settlement is in progress.' },
+  { pattern: /Must deposit at least/i, message: 'Insufficient deposit. Please attach the required amount.' },
+  { pattern: /Attach deposit equal to/i, message: 'Please attach the correct deposit amount.' },
+  { pattern: /Cannot pay yourself/i, message: 'You cannot pay yourself.' },
+  { pattern: /Payer must be member/i, message: 'You must be a circle member to make payments.' },
+  { pattern: /Recipient must be member/i, message: 'The recipient must be a circle member.' },
+  { pattern: /Shares must sum to 10.000 bps/i, message: 'Expense shares must add up to 100%.' },
+  { pattern: /Amount must be positive/i, message: 'Amount must be greater than zero.' },
+  { pattern: /Circle has reached maximum/i, message: 'This circle has reached its member limit.' },
+];
+
+/**
+ * Extract and decode a panic message from a NEAR error
+ * Returns a user-friendly message if possible
+ */
+export function decodeNearError(error: unknown): string {
+  if (!error) return 'Unknown error';
+  
+  const errorStr = error instanceof Error ? error.message : String(error);
+  
+  // Try to extract panic message from GuestPanic format
+  const panicMatch = errorStr.match(/Smart contract panicked: (.+?)(?:,|$)/);
+  const rawMessage = panicMatch ? panicMatch[1] : errorStr;
+  
+  // Check against known patterns
+  for (const { pattern, message } of ERROR_PATTERNS) {
+    if (pattern.test(rawMessage)) {
+      return message;
+    }
+  }
+  
+  // If no pattern matched, try to clean up the raw message
+  if (rawMessage.includes('GuestPanic')) {
+    // Extract the actual panic message
+    const cleanMatch = rawMessage.match(/panicked: (.+)/);
+    return cleanMatch ? cleanMatch[1] : rawMessage;
+  }
+  
+  return rawMessage;
+}
+
+/**
+ * Check if an error is a "not found" type error (non-critical)
+ */
+export function isNotFoundError(error: unknown): boolean {
+  const errorStr = error instanceof Error ? error.message : String(error);
+  return /not found|does not exist/i.test(errorStr);
+}
+
 export async function viewFunction<T>(methodName: string, args: Record<string, unknown> = {}): Promise<T> {
   console.log(`[RPC] view call: ${methodName}`, args);
   
