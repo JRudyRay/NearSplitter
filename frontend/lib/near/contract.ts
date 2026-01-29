@@ -249,7 +249,8 @@ function normalizeClaimResponse(result: unknown): Claim {
   if (obj.proposed_amount !== null && obj.proposed_amount !== undefined) {
     obj.proposed_amount = normalizeU128(obj.proposed_amount);
   }
-  return obj as Claim;
+  // Cast through unknown to satisfy TypeScript strict mode
+  return obj as unknown as Claim;
 }
 
 /**
