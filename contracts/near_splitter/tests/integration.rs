@@ -4,56 +4,19 @@
  * These tests run against a local NEAR sandbox to verify the contract
  * behaves correctly in realistic scenarios.
  * 
- * IMPORTANT: The NEAR sandbox is only available on Linux and macOS.
- * On Windows, these tests will be skipped with a helpful message.
- * 
- * To run integration tests on Windows, use one of these approaches:
- *   1. Run in Docker with a Linux container
- *   2. Use GitHub Actions or other CI on Linux runners  
- *   3. Use WSL2 with a Linux distribution
- * 
- * Run with: cargo test -p near_splitter_integration_tests
+ * Run with: cargo test --test integration
  */
 
 use near_workspaces::{Account, Contract, DevNetwork, Worker};
 use near_workspaces::types::NearToken;
 use serde_json::json;
 
-// Use the optimized WASM (run wasm-opt after cargo build)
-const WASM_FILEPATH: &str = "../near_splitter/target/wasm32-unknown-unknown/release/near_splitter_optimized.wasm";
-
-/// Try to create a sandbox worker. Returns None on Windows since sandbox is unsupported.
-async fn try_sandbox() -> Option<Worker<near_workspaces::network::Sandbox>> {
-    match near_workspaces::sandbox().await {
-        Ok(worker) => Some(worker),
-        Err(e) => {
-            let err_msg = format!("{e:?}");
-            if err_msg.contains("Unsupported platform") || err_msg.contains("only linux") {
-                eprintln!("⚠️  NEAR sandbox is not supported on this platform (Windows).");
-                eprintln!("   Integration tests require Linux or macOS.");
-                eprintln!("   Skipping test. Use Docker, WSL2, or CI for full testing.");
-                None
-            } else {
-                panic!("Failed to start sandbox: {e}");
-            }
-        }
-    }
-}
-
-/// Macro to skip tests on unsupported platforms
-macro_rules! skip_if_unsupported {
-    ($worker:ident) => {
-        let Some($worker) = try_sandbox().await else {
-            eprintln!("   Test skipped: sandbox unavailable on this platform");
-            return Ok(());
-        };
-    };
-}
+// Use the optimized WASM built with wasm-opt
+const WASM_FILEPATH: &str = "./target/wasm32-unknown-unknown/release/near_splitter_optimized.wasm";
 
 /// Helper to deploy and initialize the contract
 async fn init_contract(worker: &Worker<impl DevNetwork>) -> anyhow::Result<Contract> {
-    let wasm = std::fs::read(WASM_FILEPATH)
-        .map_err(|e| anyhow::anyhow!("Failed to read WASM at {}: {}. Run 'cargo build -p near_splitter --target wasm32-unknown-unknown --release' first.", WASM_FILEPATH, e))?;
+    let wasm = std::fs::read(WASM_FILEPATH)?;
     let contract = worker.dev_deploy(&wasm).await?;
     
     // Initialize the contract
@@ -127,7 +90,7 @@ async fn create_circle(
 
 #[tokio::test]
 async fn test_storage_deposit_and_balance() -> anyhow::Result<()> {
-    skip_if_unsupported!(worker);
+    let worker = near_workspaces::sandbox().await?;
     let contract = init_contract(&worker).await?;
     let alice = worker.dev_create_account().await?;
     
@@ -157,7 +120,7 @@ async fn test_storage_deposit_and_balance() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_unregistered_account_cannot_create_circle() -> anyhow::Result<()> {
-    skip_if_unsupported!(worker);
+    let worker = near_workspaces::sandbox().await?;
     let contract = init_contract(&worker).await?;
     let alice = worker.dev_create_account().await?;
     
@@ -175,7 +138,7 @@ async fn test_unregistered_account_cannot_create_circle() -> anyhow::Result<()> 
 
 #[tokio::test]
 async fn test_storage_unregister() -> anyhow::Result<()> {
-    skip_if_unsupported!(worker);
+    let worker = near_workspaces::sandbox().await?;
     let contract = init_contract(&worker).await?;
     let alice = worker.dev_create_account().await?;
     
@@ -205,7 +168,7 @@ async fn test_storage_unregister() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_unregistered_account_cannot_join_circle() -> anyhow::Result<()> {
-    skip_if_unsupported!(worker);
+    let worker = near_workspaces::sandbox().await?;
     let contract = init_contract(&worker).await?;
     let alice = worker.dev_create_account().await?;
     let bob = worker.dev_create_account().await?;
@@ -233,7 +196,7 @@ async fn test_unregistered_account_cannot_join_circle() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_create_circle() -> anyhow::Result<()> {
-    skip_if_unsupported!(worker);
+    let worker = near_workspaces::sandbox().await?;
     let contract = init_contract(&worker).await?;
     let alice = worker.dev_create_account().await?;
     
@@ -266,7 +229,7 @@ async fn test_create_circle() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_create_private_circle_with_password() -> anyhow::Result<()> {
-    skip_if_unsupported!(worker);
+    let worker = near_workspaces::sandbox().await?;
     let contract = init_contract(&worker).await?;
     let alice = worker.dev_create_account().await?;
     
@@ -299,7 +262,7 @@ async fn test_create_private_circle_with_password() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_join_circle_public() -> anyhow::Result<()> {
-    skip_if_unsupported!(worker);
+    let worker = near_workspaces::sandbox().await?;
     let contract = init_contract(&worker).await?;
     let alice = worker.dev_create_account().await?;
     let bob = worker.dev_create_account().await?;
@@ -331,7 +294,7 @@ async fn test_join_circle_public() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_join_private_circle_wrong_password() -> anyhow::Result<()> {
-    skip_if_unsupported!(worker);
+    let worker = near_workspaces::sandbox().await?;
     let contract = init_contract(&worker).await?;
     let alice = worker.dev_create_account().await?;
     let bob = worker.dev_create_account().await?;
@@ -359,7 +322,7 @@ async fn test_join_private_circle_wrong_password() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_join_private_circle_correct_password() -> anyhow::Result<()> {
-    skip_if_unsupported!(worker);
+    let worker = near_workspaces::sandbox().await?;
     let contract = init_contract(&worker).await?;
     let alice = worker.dev_create_account().await?;
     let bob = worker.dev_create_account().await?;
@@ -394,7 +357,7 @@ async fn test_join_private_circle_correct_password() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_cannot_join_circle_twice() -> anyhow::Result<()> {
-    skip_if_unsupported!(worker);
+    let worker = near_workspaces::sandbox().await?;
     let contract = init_contract(&worker).await?;
     let alice = worker.dev_create_account().await?;
     let bob = worker.dev_create_account().await?;
@@ -429,7 +392,7 @@ async fn test_cannot_join_circle_twice() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_add_expense_equal_split() -> anyhow::Result<()> {
-    skip_if_unsupported!(worker);
+    let worker = near_workspaces::sandbox().await?;
     let contract = init_contract(&worker).await?;
     let alice = worker.dev_create_account().await?;
     let bob = worker.dev_create_account().await?;
@@ -477,7 +440,7 @@ async fn test_add_expense_equal_split() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_autopay_pending_payout_and_withdraw() -> anyhow::Result<()> {
-    skip_if_unsupported!(worker);
+    let worker = near_workspaces::sandbox().await?;
     let contract = init_contract(&worker).await?;
     let alice = worker.dev_create_account().await?;
     let bob = worker.dev_create_account().await?;
@@ -574,7 +537,7 @@ async fn test_autopay_pending_payout_and_withdraw() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_add_expense_invalid_shares() -> anyhow::Result<()> {
-    skip_if_unsupported!(worker);
+    let worker = near_workspaces::sandbox().await?;
     let contract = init_contract(&worker).await?;
     let alice = worker.dev_create_account().await?;
     let bob = worker.dev_create_account().await?;
@@ -611,7 +574,7 @@ async fn test_add_expense_invalid_shares() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_non_member_cannot_add_expense() -> anyhow::Result<()> {
-    skip_if_unsupported!(worker);
+    let worker = near_workspaces::sandbox().await?;
     let contract = init_contract(&worker).await?;
     let alice = worker.dev_create_account().await?;
     let charlie = worker.dev_create_account().await?;
@@ -639,7 +602,7 @@ async fn test_non_member_cannot_add_expense() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_add_expense_shares_non_member_fails() -> anyhow::Result<()> {
-    skip_if_unsupported!(worker);
+    let worker = near_workspaces::sandbox().await?;
     let contract = init_contract(&worker).await?;
     let alice = worker.dev_create_account().await?;
     let bob = worker.dev_create_account().await?;
@@ -671,7 +634,7 @@ async fn test_add_expense_shares_non_member_fails() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_add_expense_duplicate_account_in_shares_fails() -> anyhow::Result<()> {
-    skip_if_unsupported!(worker);
+    let worker = near_workspaces::sandbox().await?;
     let contract = init_contract(&worker).await?;
     let alice = worker.dev_create_account().await?;
     
@@ -701,7 +664,7 @@ async fn test_add_expense_duplicate_account_in_shares_fails() -> anyhow::Result<
 
 #[tokio::test]
 async fn test_add_expense_zero_weight_bps_fails() -> anyhow::Result<()> {
-    skip_if_unsupported!(worker);
+    let worker = near_workspaces::sandbox().await?;
     let contract = init_contract(&worker).await?;
     let alice = worker.dev_create_account().await?;
     let bob = worker.dev_create_account().await?;
@@ -738,7 +701,7 @@ async fn test_add_expense_zero_weight_bps_fails() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_add_expense_weight_bps_over_10000_fails() -> anyhow::Result<()> {
-    skip_if_unsupported!(worker);
+    let worker = near_workspaces::sandbox().await?;
     let contract = init_contract(&worker).await?;
     let alice = worker.dev_create_account().await?;
     
@@ -770,7 +733,7 @@ async fn test_add_expense_weight_bps_over_10000_fails() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_compute_balances_simple() -> anyhow::Result<()> {
-    skip_if_unsupported!(worker);
+    let worker = near_workspaces::sandbox().await?;
     let contract = init_contract(&worker).await?;
     let alice = worker.dev_create_account().await?;
     let bob = worker.dev_create_account().await?;
@@ -833,7 +796,7 @@ async fn test_compute_balances_simple() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_suggest_settlements() -> anyhow::Result<()> {
-    skip_if_unsupported!(worker);
+    let worker = near_workspaces::sandbox().await?;
     let contract = init_contract(&worker).await?;
     let alice = worker.dev_create_account().await?;
     let bob = worker.dev_create_account().await?;
@@ -885,7 +848,7 @@ async fn test_suggest_settlements() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_pay_native_settlement() -> anyhow::Result<()> {
-    skip_if_unsupported!(worker);
+    let worker = near_workspaces::sandbox().await?;
     let contract = init_contract(&worker).await?;
     let alice = worker.dev_create_account().await?;
     let bob = worker.dev_create_account().await?;
@@ -951,7 +914,7 @@ async fn test_pay_native_settlement() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_non_member_cannot_pay() -> anyhow::Result<()> {
-    skip_if_unsupported!(worker);
+    let worker = near_workspaces::sandbox().await?;
     let contract = init_contract(&worker).await?;
     let alice = worker.dev_create_account().await?;
     let charlie = worker.dev_create_account().await?;
@@ -989,7 +952,7 @@ async fn test_non_member_cannot_pay() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_leave_circle() -> anyhow::Result<()> {
-    skip_if_unsupported!(worker);
+    let worker = near_workspaces::sandbox().await?;
     let contract = init_contract(&worker).await?;
     let alice = worker.dev_create_account().await?;
     let bob = worker.dev_create_account().await?;
@@ -1006,7 +969,6 @@ async fn test_leave_circle() -> anyhow::Result<()> {
         .into_result()?;
     
     // Settle the circle first (required before leaving)
-    // All members must confirm the ledger
     alice.call(contract.id(), "confirm_ledger")
         .args_json(json!({ "circle_id": &circle_id }))
         .transact()
@@ -1040,7 +1002,7 @@ async fn test_leave_circle() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_cannot_leave_with_balance() -> anyhow::Result<()> {
-    skip_if_unsupported!(worker);
+    let worker = near_workspaces::sandbox().await?;
     let contract = init_contract(&worker).await?;
     let alice = worker.dev_create_account().await?;
     let bob = worker.dev_create_account().await?;
@@ -1085,7 +1047,7 @@ async fn test_cannot_leave_with_balance() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_owner_cannot_leave() -> anyhow::Result<()> {
-    skip_if_unsupported!(worker);
+    let worker = near_workspaces::sandbox().await?;
     let contract = init_contract(&worker).await?;
     let alice = worker.dev_create_account().await?;
     
@@ -1107,7 +1069,7 @@ async fn test_owner_cannot_leave() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_transfer_ownership() -> anyhow::Result<()> {
-    skip_if_unsupported!(worker);
+    let worker = near_workspaces::sandbox().await?;
     let contract = init_contract(&worker).await?;
     let alice = worker.dev_create_account().await?;
     let bob = worker.dev_create_account().await?;
@@ -1147,7 +1109,7 @@ async fn test_transfer_ownership() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_non_owner_cannot_transfer_ownership() -> anyhow::Result<()> {
-    skip_if_unsupported!(worker);
+    let worker = near_workspaces::sandbox().await?;
     let contract = init_contract(&worker).await?;
     let alice = worker.dev_create_account().await?;
     let bob = worker.dev_create_account().await?;
@@ -1188,7 +1150,7 @@ async fn test_non_owner_cannot_transfer_ownership() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_transfer_ownership_to_non_member_fails() -> anyhow::Result<()> {
-    skip_if_unsupported!(worker);
+    let worker = near_workspaces::sandbox().await?;
     let contract = init_contract(&worker).await?;
     let alice = worker.dev_create_account().await?;
     let bob = worker.dev_create_account().await?;
@@ -1215,7 +1177,7 @@ async fn test_transfer_ownership_to_non_member_fails() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_owner_can_transfer_and_then_leave() -> anyhow::Result<()> {
-    skip_if_unsupported!(worker);
+    let worker = near_workspaces::sandbox().await?;
     let contract = init_contract(&worker).await?;
     let alice = worker.dev_create_account().await?;
     let bob = worker.dev_create_account().await?;
@@ -1280,7 +1242,7 @@ async fn test_owner_can_transfer_and_then_leave() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_empty_circle_name_rejected() -> anyhow::Result<()> {
-    skip_if_unsupported!(worker);
+    let worker = near_workspaces::sandbox().await?;
     let contract = init_contract(&worker).await?;
     let alice = worker.dev_create_account().await?;
     
@@ -1299,7 +1261,7 @@ async fn test_empty_circle_name_rejected() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_zero_amount_expense_rejected() -> anyhow::Result<()> {
-    skip_if_unsupported!(worker);
+    let worker = near_workspaces::sandbox().await?;
     let contract = init_contract(&worker).await?;
     let alice = worker.dev_create_account().await?;
     
@@ -1330,7 +1292,7 @@ async fn test_zero_amount_expense_rejected() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_list_circles_by_member() -> anyhow::Result<()> {
-    skip_if_unsupported!(worker);
+    let worker = near_workspaces::sandbox().await?;
     let contract = init_contract(&worker).await?;
     let alice = worker.dev_create_account().await?;
     let bob = worker.dev_create_account().await?;
@@ -1388,7 +1350,7 @@ async fn test_list_circles_by_member() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_full_expense_splitting_workflow() -> anyhow::Result<()> {
-    skip_if_unsupported!(worker);
+    let worker = near_workspaces::sandbox().await?;
     let contract = init_contract(&worker).await?;
     
     // Create 3 users
@@ -1531,4 +1493,3 @@ async fn test_full_expense_splitting_workflow() -> anyhow::Result<()> {
     
     Ok(())
 }
-

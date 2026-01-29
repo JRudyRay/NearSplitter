@@ -68,7 +68,8 @@ function normalizeCircleResponse(result: unknown): Circle {
   if (!obj.state) {
     obj.state = obj.locked ? 'settlement_in_progress' : 'open';
   }
-  return obj as Circle;
+  // Cast through unknown to satisfy TypeScript strict mode
+  return obj as unknown as Circle;
 }
 
 export async function listExpenses(circleId: string, viewFn: ViewFunction, from = 0, limit = 50): Promise<Expense[]> {
