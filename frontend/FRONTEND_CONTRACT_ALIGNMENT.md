@@ -35,15 +35,33 @@
 
 ## 5. Updated UI Components (`frontend/app/page.tsx`)
 
-- [x] Circle status badges now use `state` field:
-  - `'settlement_in_progress'` → Yellow badge
-  - `'settlement_executing'` → Orange animated badge (transient state during autopay)
-  - `'settled'` → Blue badge  
-  - `'open'` → Green/Gray membership badges
-- [x] Owner controls (membership toggle) only visible when `state === 'open'`
-- [x] Add Expense form disabled when circle is not in `'open'` state
+### Circle Status Badges
+- [x] `'settlement_in_progress'` → Yellow badge
+- [x] `'settlement_executing'` → Orange animated badge (transient state during autopay)
+- [x] `'settled'` → Blue badge  
+- [x] `'open'` → Green/Gray membership badges
+
+### Owner Controls (Circle Actions section)
+- [x] **Membership Toggle** - Only visible when `state === 'open'`
+- [x] **Transfer Ownership** - Owner can transfer to another member (when `state === 'open'` and >1 members)
+- [x] **Reset Confirmations** - Owner can reset during `settlement_in_progress` to unlock circle
+- [x] **Delete Circle** - Owner can delete when they're the only member left
+
+### Member Controls
+- [x] **Leave Circle** - Non-owner members can leave when circle is `settled`
+
+### Expense Controls
+- [x] **Add Expense** - Form disabled when circle is not in `'open'` state
+- [x] **Delete Expense** - Payer can delete their own expense when circle is `'open'`
+- [x] **Dispute Expense** - Participants (not payer) can file claims
+
+### Payment Features
+- [x] **Pending Payout Banner** - Shows when user has funds to withdraw (pull-payment pattern)
+- [x] **Withdraw Payout Button** - Allows user to claim pending payouts
+
+### Error Handling
+- [x] All error handlers use `decodeNearError()` for user-friendly messages
 - [x] Warning message displayed when trying to add expenses to locked/settled circles
-- [x] All 8 error handlers updated to use `decodeNearError()` for user-friendly messages
 
 ## 6. Tests Added/Updated
 
@@ -132,27 +150,45 @@
 | `storage_balance_of` | `account_id: String` | `StorageBalance \| null` |
 
 ### Change Methods (require gas, some require deposit)
-| Method | Args | Deposit | Gas |
-|--------|------|---------|-----|
-| `create_circle` | `name, invite_code?` | 0 | 50 TGas |
-| `join_circle` | `circle_id, invite_code?` | 0 | 50 TGas |
-| `add_expense` | `circle_id, participants, amount_yocto, memo` | 0 | 100 TGas |
-| `file_claim` | `circle_id, expense_id, reason, ...` | 0 | 100 TGas |
-| `approve_claim` | `circle_id, claim_id` | 0 | 100 TGas |
-| `reject_claim` | `circle_id, claim_id` | 0 | 100 TGas |
-| `confirm_ledger` | `circle_id` | escrow | 150 TGas |
-| `record_payment` | `circle_id, to, amount` | payment | 150 TGas |
-| `storage_deposit` | `account_id?` | min storage | 50 TGas |
+| Method | Args | Deposit | Gas | Frontend Status |
+|--------|------|---------|-----|-----------------|
+| `storage_deposit` | `account_id?` | min storage | 50 TGas | ✅ UI |
+| `create_circle` | `name, invite_code?` | 0 | 50 TGas | ✅ UI |
+| `join_circle` | `circle_id, invite_code?` | 0 | 50 TGas | ✅ UI |
+| `add_expense` | `circle_id, participants, amount_yocto, memo` | 0 | 100 TGas | ✅ UI |
+| `file_claim` | `circle_id, expense_id, reason, ...` | 0 | 100 TGas | ✅ UI |
+| `approve_claim` | `circle_id, claim_id` | 0 | 100 TGas | ✅ UI |
+| `reject_claim` | `circle_id, claim_id` | 0 | 100 TGas | ✅ UI |
+| `confirm_ledger` | `circle_id` | escrow | 150 TGas | ✅ UI |
+| `pay_native` | `circle_id, to, amount?` | payment | 150 TGas | ✅ UI |
+| `set_membership_open` | `circle_id, open` | 0 | 50 TGas | ✅ UI |
+| `leave_circle` | `circle_id` | 0 | 100 TGas | ✅ UI |
+| `delete_expense` | `circle_id, expense_id` | 0 | 100 TGas | ✅ UI |
+| `transfer_ownership` | `circle_id, new_owner` | 0 | 100 TGas | ✅ UI |
+| `delete_circle` | `circle_id` | 0 | 100 TGas | ✅ UI |
+| `reset_confirmations` | `circle_id` | 0 | 150 TGas | ✅ UI |
+| `withdraw_payout` | - | 1 yocto | 150 TGas | ✅ UI |
+| `withdraw_payout_partial` | `amount` | 1 yocto | 150 TGas | Handler only |
+| `ft_on_transfer` | (NEP-141 callback) | - | - | N/A (external) |
+| `cache_ft_metadata` | `token_account_id` | 0 | 50 TGas | Handler only |
+| `storage_withdraw` | `amount?` | 1 yocto | 50 TGas | Handler only |
+| `storage_unregister` | `force?` | 1 yocto | 50 TGas | Handler only |
 
 ---
 
 ## Summary
 
 All frontend components have been updated to align with the contract interface:
-- **Types**: CircleState enum, U128/I128 normalization
-- **Bindings**: All view methods properly normalize responses
+- **Types**: CircleState enum (4 states), U128/I128 normalization
+- **Bindings**: All 22 view methods properly normalize responses  
+- **Mutations**: 16 change methods have frontend handlers, 15 with full UI
 - **Error handling**: User-friendly error messages via pattern matching
 - **UI**: State-aware rendering for circle lifecycle
 - **Tests**: 43 tests covering critical paths
+
+### Contract Function Coverage
+- VIEW functions: 22/22 complete ✅
+- CHANGE functions with UI: 16/21 complete ✅
+- Advanced/optional functions (no UI needed): 5 (ft_on_transfer, cache_ft_metadata, storage_withdraw, storage_unregister, withdraw_payout_partial)
 
 Run `pnpm test` to verify all tests pass before deployment.

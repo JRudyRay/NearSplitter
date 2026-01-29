@@ -106,6 +106,12 @@ export default function HomePage() {
   const fileClaimMutation = useContractCall();
   const approveClaimMutation = useContractCall();
   const rejectClaimMutation = useContractCall();
+  const leaveCircleMutation = useContractCall();
+  const deleteExpenseMutation = useContractCall();
+  const transferOwnershipMutation = useContractCall();
+  const deleteCircleMutation = useContractCall();
+  const resetConfirmationsMutation = useContractCall();
+  const withdrawPayoutMutation = useContractCall();
 
   // Claim modal state
   const [claimModalOpen, setClaimModalOpen] = useState(false);
@@ -358,6 +364,13 @@ export default function HomePage() {
     selectedCircleId ? 'all_members_autopay' : null,
     selectedCircleId ? { circle_id: selectedCircleId } : null,
     { refreshInterval: 20_000 }
+  );
+  
+  // Pending payout for the current user (pull-payment pattern)
+  const pendingPayout = useContractView<string>(
+    near.accountId ? 'get_pending_payout' : null,
+    near.accountId ? { account_id: near.accountId } : null,
+    { refreshInterval: 30_000 }
   );
 
   const selectedCircle = selectedCircleId ? circleMap[selectedCircleId] : null;
@@ -939,6 +952,261 @@ export default function HomePage() {
     ]
   );
 
+  // Handler: Leave a circle (must be settled, have zero balance, not be owner)
+  const handleLeaveCircle = useCallback(
+    async () => {
+      if (!selectedCircleId || !selectedCircle) {
+        toast.error('No circle selected.', { title: 'Cannot leave' });
+        return;
+      }
+      if (selectedCircle.owner === near.accountId) {
+        toast.error('Owner cannot leave. Transfer ownership first.', { title: 'Cannot leave' });
+        return;
+      }
+      
+      setConfirmationModal({
+        isOpen: true,
+        type: 'leave circle',
+        details: [
+          { label: 'Circle', value: selectedCircle.name },
+          { label: 'Warning', value: 'You will lose access to this circle' }
+        ],
+        onConfirm: async () => {
+          try {
+            toast.info('Check your wallet to approve.', { title: 'Leave circle', durationMs: 6_000 });
+            await leaveCircleMutation.execute('leave_circle', { circle_id: selectedCircleId });
+            
+            // Remove from tracked circles
+            setTrackedCircleIds((prev: string[]) => prev.filter(id => id !== selectedCircleId));
+            setCircleMap((prev: Record<string, Circle>) => {
+              const next = { ...prev };
+              delete next[selectedCircleId];
+              return next;
+            });
+            setSelectedCircleId(null);
+            await memberCircles.mutate();
+            
+            toast.success('Left circle successfully!', { title: 'Circle left' });
+            setConfirmationModal({ isOpen: false, type: '', onConfirm: () => {} });
+          } catch (error) {
+            toast.error(decodeNearError(error), { title: 'Leave circle failed' });
+            throw error;
+          }
+        }
+      });
+    },
+    [selectedCircleId, selectedCircle, near.accountId, leaveCircleMutation, memberCircles, setTrackedCircleIds, setCircleMap, toast]
+  );
+
+  // Handler: Delete an expense (only payer can delete, no pending claims)
+  const handleDeleteExpense = useCallback(
+    async (expenseId: string) => {
+      if (!selectedCircleId) {
+        toast.error('No circle selected.', { title: 'Cannot delete' });
+        return;
+      }
+      
+      setConfirmationModal({
+        isOpen: true,
+        type: 'delete expense',
+        details: [
+          { label: 'Expense ID', value: expenseId },
+          { label: 'Warning', value: 'This action cannot be undone' }
+        ],
+        onConfirm: async () => {
+          try {
+            toast.info('Check your wallet to approve.', { title: 'Delete expense', durationMs: 6_000 });
+            await deleteExpenseMutation.execute('delete_expense', { 
+              circle_id: selectedCircleId, 
+              expense_id: expenseId 
+            });
+            
+            await Promise.all([circleExpenses.mutate(), circleBalances.mutate(), circleSuggestions.mutate()]);
+            toast.success('Expense deleted successfully!', { title: 'Expense deleted' });
+            setConfirmationModal({ isOpen: false, type: '', onConfirm: () => {} });
+          } catch (error) {
+            toast.error(decodeNearError(error), { title: 'Delete expense failed' });
+            throw error;
+          }
+        }
+      });
+    },
+    [selectedCircleId, deleteExpenseMutation, circleExpenses, circleBalances, circleSuggestions, toast]
+  );
+
+  // Handler: Transfer circle ownership (only owner can transfer)
+  const handleTransferOwnership = useCallback(
+    async (newOwner: string) => {
+      if (!selectedCircleId || !selectedCircle) {
+        toast.error('No circle selected.', { title: 'Cannot transfer' });
+        return;
+      }
+      if (selectedCircle.owner !== near.accountId) {
+        toast.error('Only owner can transfer ownership.', { title: 'Cannot transfer' });
+        return;
+      }
+      
+      setConfirmationModal({
+        isOpen: true,
+        type: 'transfer ownership',
+        details: [
+          { label: 'Circle', value: selectedCircle.name },
+          { label: 'New Owner', value: newOwner },
+          { label: 'Warning', value: 'You will lose owner privileges' }
+        ],
+        onConfirm: async () => {
+          try {
+            toast.info('Check your wallet to approve.', { title: 'Transfer ownership', durationMs: 6_000 });
+            await transferOwnershipMutation.execute('transfer_ownership', { 
+              circle_id: selectedCircleId, 
+              new_owner: newOwner 
+            });
+            
+            // Refresh circle data
+            if (near.viewFunction) {
+              const updated = await getCircle(selectedCircleId, near.viewFunction);
+              setCircleMap((prev: Record<string, Circle>) => ({ ...prev, [updated.id]: updated }));
+            }
+            
+            toast.success(`Ownership transferred to ${newOwner}!`, { title: 'Ownership transferred' });
+            setConfirmationModal({ isOpen: false, type: '', onConfirm: () => {} });
+          } catch (error) {
+            toast.error(decodeNearError(error), { title: 'Transfer ownership failed' });
+            throw error;
+          }
+        }
+      });
+    },
+    [selectedCircleId, selectedCircle, near.accountId, near.viewFunction, transferOwnershipMutation, setCircleMap, toast]
+  );
+
+  // Handler: Delete a circle (only owner, must be empty except owner)
+  const handleDeleteCircle = useCallback(
+    async () => {
+      if (!selectedCircleId || !selectedCircle) {
+        toast.error('No circle selected.', { title: 'Cannot delete' });
+        return;
+      }
+      if (selectedCircle.owner !== near.accountId) {
+        toast.error('Only owner can delete circle.', { title: 'Cannot delete' });
+        return;
+      }
+      
+      setConfirmationModal({
+        isOpen: true,
+        type: 'delete circle',
+        details: [
+          { label: 'Circle', value: selectedCircle.name },
+          { label: 'Warning', value: 'This action cannot be undone. All members must leave first.' }
+        ],
+        onConfirm: async () => {
+          try {
+            toast.info('Check your wallet to approve.', { title: 'Delete circle', durationMs: 6_000 });
+            await deleteCircleMutation.execute('delete_circle', { circle_id: selectedCircleId });
+            
+            // Remove from tracked circles
+            setTrackedCircleIds((prev: string[]) => prev.filter(id => id !== selectedCircleId));
+            setCircleMap((prev: Record<string, Circle>) => {
+              const next = { ...prev };
+              delete next[selectedCircleId];
+              return next;
+            });
+            setSelectedCircleId(null);
+            await memberCircles.mutate();
+            
+            toast.success('Circle deleted successfully!', { title: 'Circle deleted' });
+            setConfirmationModal({ isOpen: false, type: '', onConfirm: () => {} });
+          } catch (error) {
+            toast.error(decodeNearError(error), { title: 'Delete circle failed' });
+            throw error;
+          }
+        }
+      });
+    },
+    [selectedCircleId, selectedCircle, near.accountId, deleteCircleMutation, memberCircles, setTrackedCircleIds, setCircleMap, toast]
+  );
+
+  // Handler: Reset confirmations (only owner, unlocks circle)
+  const handleResetConfirmations = useCallback(
+    async () => {
+      if (!selectedCircleId || !selectedCircle) {
+        toast.error('No circle selected.', { title: 'Cannot reset' });
+        return;
+      }
+      if (selectedCircle.owner !== near.accountId) {
+        toast.error('Only owner can reset confirmations.', { title: 'Cannot reset' });
+        return;
+      }
+      
+      setConfirmationModal({
+        isOpen: true,
+        type: 'reset confirmations',
+        details: [
+          { label: 'Circle', value: selectedCircle.name },
+          { label: 'Effect', value: 'All confirmations will be cleared and escrowed funds refunded' }
+        ],
+        onConfirm: async () => {
+          try {
+            toast.info('Check your wallet to approve.', { title: 'Reset confirmations', durationMs: 6_000 });
+            await resetConfirmationsMutation.execute('reset_confirmations', { circle_id: selectedCircleId });
+            
+            // Refresh circle and confirmation data
+            if (near.viewFunction) {
+              const updated = await getCircle(selectedCircleId, near.viewFunction);
+              setCircleMap((prev: Record<string, Circle>) => ({ ...prev, [updated.id]: updated }));
+            }
+            await Promise.all([circleConfirmations.mutate(), isFullyConfirmed.mutate()]);
+            
+            toast.success('Confirmations reset!', { title: 'Reset complete' });
+            setConfirmationModal({ isOpen: false, type: '', onConfirm: () => {} });
+          } catch (error) {
+            toast.error(decodeNearError(error), { title: 'Reset confirmations failed' });
+            throw error;
+          }
+        }
+      });
+    },
+    [selectedCircleId, selectedCircle, near.accountId, near.viewFunction, resetConfirmationsMutation, circleConfirmations, isFullyConfirmed, setCircleMap, toast]
+  );
+
+  // Handler: Withdraw pending payout
+  const handleWithdrawPayout = useCallback(
+    async () => {
+      if (!near.accountId) {
+        toast.error('Not signed in.', { title: 'Cannot withdraw' });
+        return;
+      }
+      
+      const pending = pendingPayout.data;
+      if (!pending || BigInt(pending) === 0n) {
+        toast.error('No pending payout to withdraw.', { title: 'Nothing to withdraw' });
+        return;
+      }
+      
+      setConfirmationModal({
+        isOpen: true,
+        type: 'withdraw payout',
+        details: [
+          { label: 'Amount', value: `${formatNearAmount(pending)} Ⓝ` }
+        ],
+        onConfirm: async () => {
+          try {
+            toast.info('Check your wallet to approve.', { title: 'Withdraw payout', durationMs: 6_000 });
+            await withdrawPayoutMutation.execute('withdraw_payout', {}, { deposit: '1', gas: GAS_150_TGAS });
+            
+            await pendingPayout.mutate();
+            toast.success('Payout withdrawn successfully!', { title: 'Payout received' });
+            setConfirmationModal({ isOpen: false, type: '', onConfirm: () => {} });
+          } catch (error) {
+            toast.error(decodeNearError(error), { title: 'Withdraw payout failed' });
+            throw error;
+          }
+        }
+      });
+    },
+    [near.accountId, pendingPayout, withdrawPayoutMutation, toast]
+  );
+
   // Landing state (explicit connect)
   if (!near.accountId) {
     return (
@@ -1207,6 +1475,36 @@ export default function HomePage() {
               <PendingClaimsBanner 
                 pendingCount={circleClaims.data?.filter((c: Claim) => c.status === 'pending').length ?? 0}
               />
+              
+              {/* Pending Payout Banner - shows when user has claimable funds */}
+              {pendingPayout.data && BigInt(pendingPayout.data) > 0n && (
+                <div className="rounded-xl border border-brand-500/50 bg-brand-500/10 p-3 shadow-lg animate-pulse-subtle">
+                  <div className="flex items-center justify-between flex-wrap gap-3">
+                    <div className="flex items-center gap-2">
+                      <div className="rounded-lg bg-brand-500/20 p-2">
+                        <DollarSign className="h-5 w-5 text-brand-500" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-semibold text-fg">You have a pending payout!</p>
+                        <p className="text-xs text-muted-fg">
+                          <span className="font-bold text-brand-500">{formatNearAmount(pendingPayout.data)} Ⓝ</span> ready to withdraw
+                        </p>
+                      </div>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="primary"
+                      onClick={handleWithdrawPayout}
+                      loading={withdrawPayoutMutation.loading}
+                      className="shadow-near-glow"
+                    >
+                      <DollarSign className="w-4 h-4 mr-1" />
+                      Withdraw
+                    </Button>
+                  </div>
+                </div>
+              )}
+              
               <article className="rounded-xl border border-border/50 bg-gradient-to-br from-card to-muted p-3 shadow-xl hover:shadow-xl transition-all duration-300 backdrop-blur-sm">
                 <header className="flex flex-col gap-3">
                   <div className="grid gap-3 lg:grid-cols-[1fr_320px] lg:items-start">
@@ -1339,6 +1637,87 @@ export default function HomePage() {
                               />
                             </button>
                           </div>
+                        </div>
+                      )}
+
+                      {/* Circle Actions - Owner controls for managing circle */}
+                      {selectedCircle.owner === near.accountId && (
+                        <div className={`rounded-lg border border-border/50 bg-card/50 p-2.5 shadow-near-glow-sm backdrop-blur-sm`}>
+                          <p className="text-xs font-semibold text-muted-fg mb-2 flex items-center gap-1.5">
+                            <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
+                              <path fillRule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.372-.836-2.942.734-2.106 2.106.54.886.061 2.042-.947 2.287-1.561.379-1.561 2.6 0 2.978a1.532 1.532 0 01.947 2.287c-.836 1.372.734 2.942 2.106 2.106a1.532 1.532 0 012.287.947c.379 1.561 2.6 1.561 2.978 0a1.533 1.533 0 012.287-.947c1.372.836 2.942-.734 2.106-2.106a1.533 1.533 0 01.947-2.287c1.561-.379 1.561-2.6 0-2.978a1.532 1.532 0 01-.947-2.287c.836-1.372-.734-2.942-2.106-2.106a1.532 1.532 0 01-2.287-.947zM10 13a3 3 0 100-6 3 3 0 000 6z" clipRule="evenodd" />
+                            </svg>
+                            Circle Actions
+                          </p>
+                          <div className="flex flex-wrap gap-2">
+                            {/* Transfer Ownership - owner only, when circle is open */}
+                            {selectedCircle.state === 'open' && selectedCircle.members.length > 1 && (
+                              <Button
+                                size="sm"
+                                variant="secondary"
+                                onClick={() => {
+                                  // Simple prompt for new owner - could be a modal in the future
+                                  const newOwner = prompt('Enter the account ID of the new owner (must be a member):');
+                                  if (newOwner && newOwner.trim()) {
+                                    handleTransferOwnership(newOwner.trim());
+                                  }
+                                }}
+                                loading={transferOwnershipMutation.loading}
+                              >
+                                <svg className="w-3 h-3 mr-1" fill="currentColor" viewBox="0 0 20 20">
+                                  <path d="M8 9a3 3 0 100-6 3 3 0 000 6zM8 11a6 6 0 016 6H2a6 6 0 016-6zM16 7a1 1 0 10-2 0v1h-1a1 1 0 100 2h1v1a1 1 0 102 0v-1h1a1 1 0 100-2h-1V7z" />
+                                </svg>
+                                Transfer
+                              </Button>
+                            )}
+                            {/* Reset Confirmations - owner only, during settlement_in_progress */}
+                            {selectedCircle.state === 'settlement_in_progress' && (
+                              <Button
+                                size="sm"
+                                variant="secondary"
+                                onClick={() => handleResetConfirmations()}
+                                loading={resetConfirmationsMutation.loading}
+                              >
+                                <svg className="w-3 h-3 mr-1" fill="currentColor" viewBox="0 0 20 20">
+                                  <path fillRule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clipRule="evenodd" />
+                                </svg>
+                                Reset Confirmations
+                              </Button>
+                            )}
+                            {/* Delete Circle - owner only, when they're the only member */}
+                            {selectedCircle.members.length === 1 && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => handleDeleteCircle()}
+                                loading={deleteCircleMutation.loading}
+                                className="text-red-500 border-red-500/50 hover:bg-red-500/10"
+                              >
+                                <svg className="w-3 h-3 mr-1" fill="currentColor" viewBox="0 0 20 20">
+                                  <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
+                                </svg>
+                                Delete Circle
+                              </Button>
+                            )}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Leave Circle - non-owner members when circle is settled */}
+                      {selectedCircle.owner !== near.accountId && selectedCircle.state === 'settled' && (
+                        <div className={`rounded-lg border border-yellow-500/30 bg-yellow-500/10 p-2.5`}>
+                          <p className="text-xs text-muted-fg mb-2">This circle is settled. You can leave if you wish.</p>
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            onClick={() => handleLeaveCircle()}
+                            loading={leaveCircleMutation.loading}
+                          >
+                            <svg className="w-3 h-3 mr-1" fill="currentColor" viewBox="0 0 20 20">
+                              <path fillRule="evenodd" d="M3 3a1 1 0 00-1 1v12a1 1 0 102 0V4a1 1 0 00-1-1zm10.293 9.293a1 1 0 001.414 1.414l3-3a1 1 0 000-1.414l-3-3a1 1 0 10-1.414 1.414L14.586 9H7a1 1 0 100 2h7.586l-1.293 1.293z" clipRule="evenodd" />
+                            </svg>
+                            Leave Circle
+                          </Button>
                         </div>
                       )}
                     </div>
@@ -2117,6 +2496,23 @@ export default function HomePage() {
                             >
                               <AlertTriangle className="h-3 w-3" />
                               Dispute this expense
+                            </button>
+                          </div>
+                        )}
+
+                        {/* Delete expense button - only for payer when circle is open */}
+                        {isPayer && selectedCircle?.state === 'open' && (
+                          <div className="mt-2">
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteExpense(expense.id)}
+                              disabled={deleteExpenseMutation.loading}
+                              className="text-xs text-red-500 hover:text-red-400 flex items-center gap-1 transition-colors disabled:opacity-50"
+                            >
+                              <svg className="h-3 w-3" fill="currentColor" viewBox="0 0 20 20">
+                                <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
+                              </svg>
+                              Delete expense
                             </button>
                           </div>
                         )}
