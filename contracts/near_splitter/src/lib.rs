@@ -14,7 +14,14 @@ use near_sdk::{
     PanicOnDefault, Promise, PromiseOrValue, PromiseResult,
 };
 
-const STORAGE_BYTES_PER_ACCOUNT: u64 = 25_000;
+/// Minimum storage bytes reserved for account registration (entry in storage_deposits map)
+/// This is the "locked" minimum that cannot be used for operations
+const STORAGE_BYTES_REGISTRATION: u64 = 200;
+
+/// Recommended total storage bytes for an account (covers registration + typical usage)
+/// Used for storage_balance_bounds.min to tell users how much to deposit
+const STORAGE_BYTES_RECOMMENDED: u64 = 25_000;
+
 const MAX_PAGINATION_LIMIT: u64 = 100;  // Maximum items per page - prevents DoS attacks
 const MAX_CIRCLE_MEMBERS: usize = 50;  // Maximum members per circle - prevents member explosion
 const MAX_EXPENSES_PER_CIRCLE: usize = 500;  // Maximum expenses per circle - prevents storage DoS
@@ -1794,16 +1801,19 @@ impl NearSplitter {
     }
 
     pub fn storage_balance_bounds(&self) -> StorageBalanceBounds {
-        let cost = self.required_storage_cost();
+        // min = recommended amount so users deposit enough for typical usage
+        // This ensures users have available credit for operations like creating circles
+        let recommended = self.recommended_storage_cost();
         StorageBalanceBounds {
-            min: yocto_to_token(cost),
+            min: yocto_to_token(recommended),
             max: None,
         }
     }
 
     /// Deposit storage for an account. This is required before using the contract.
+    /// For new registrations, requires the recommended amount (~0.25 NEAR) to ensure
+    /// users have enough credit for typical operations (creating circles, adding expenses).
     /// If the account is already registered and registration_only is true, no deposit is required.
-    /// Any excess deposit over the required cost is refunded.
     /// SECURITY: Allows depositing for another account (common NEP-145 pattern for onboarding)
     #[payable]
     pub fn storage_deposit(
@@ -1820,7 +1830,8 @@ impl NearSplitter {
             "Invalid account ID length"
         );
         let deposit = env::attached_deposit().as_yoctonear();
-        let cost = self.required_storage_cost();
+        let min_locked = self.required_storage_cost();
+        let recommended = self.recommended_storage_cost();
 
         // Already registered case
         if let Some(balance) = self.storage_deposits.get(&account_id) {
@@ -1832,27 +1843,30 @@ impl NearSplitter {
                     .checked_add(deposit)
                     .unwrap_or_else(|| env::panic_str("Storage deposit overflow"));
                 self.storage_deposits.insert(&account_id, &new_total);
-                let available = new_total.saturating_sub(cost);
+                let available = new_total.saturating_sub(min_locked);
                 return StorageBalance {
                     total: yocto_to_token(new_total),
                     available: yocto_to_token(available),
                 };
             }
 
-            let available = balance.saturating_sub(cost);
+            let available = balance.saturating_sub(min_locked);
             return StorageBalance {
                 total: yocto_to_token(balance),
                 available: yocto_to_token(available),
             };
         }
 
-        // New registration
-        require!(deposit >= cost, "Insufficient deposit for storage registration");
+        // New registration - require recommended amount so user can actually use the contract
+        require!(
+            deposit >= recommended, 
+            "Insufficient deposit for storage registration (need ~0.25 NEAR for typical usage)"
+        );
         self.storage_deposits.insert(&account_id, &deposit);
 
         StorageBalance {
             total: yocto_to_token(deposit),
-            available: yocto_to_token(deposit.saturating_sub(cost)),
+            available: yocto_to_token(deposit.saturating_sub(min_locked)),
         }
     }
 
@@ -1971,8 +1985,15 @@ impl NearSplitter {
         );
     }
 
+    /// Minimum locked storage cost (just for registration entry)
+    /// This is the amount that remains locked and cannot be used for operations
     fn required_storage_cost(&self) -> u128 {
-        env::storage_byte_cost().as_yoctonear() * (STORAGE_BYTES_PER_ACCOUNT as u128)
+        env::storage_byte_cost().as_yoctonear() * (STORAGE_BYTES_REGISTRATION as u128)
+    }
+
+    /// Recommended storage deposit (covers registration + typical operations)
+    fn recommended_storage_cost(&self) -> u128 {
+        env::storage_byte_cost().as_yoctonear() * (STORAGE_BYTES_RECOMMENDED as u128)
     }
 
     fn apply_storage_cost(&mut self, account_id: &AccountId, initial_usage: u64, use_attached: bool) {
