@@ -1,13 +1,18 @@
 /**
  * Circle state machine - matches contract CircleState enum
  * UPDATED: Added to match contract state field for settlement tracking
+ * - open: Normal operations
+ * - settlement_in_progress: Confirmations in progress, circle locked
+ * - settlement_executing: Autopay actively running (transient state)
+ * - settled: Settlement complete, circle can be reactivated
  */
-export type CircleState = 'open' | 'settlement_in_progress' | 'settled';
+export type CircleState = 'open' | 'settlement_in_progress' | 'settlement_executing' | 'settled';
 
 /** Valid circle state values - for runtime validation */
 export const VALID_CIRCLE_STATES: readonly CircleState[] = [
   'open',
   'settlement_in_progress',
+  'settlement_executing',
   'settled'
 ] as const;
 

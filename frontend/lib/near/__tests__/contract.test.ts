@@ -61,6 +61,7 @@ describe('Contract type normalization', () => {
     it('validates all known circle states', () => {
       expect(isValidCircleState('open')).toBe(true);
       expect(isValidCircleState('settlement_in_progress')).toBe(true);
+      expect(isValidCircleState('settlement_executing')).toBe(true);
       expect(isValidCircleState('settled')).toBe(true);
     });
 
@@ -73,8 +74,9 @@ describe('Contract type normalization', () => {
     it('VALID_CIRCLE_STATES contains all states', () => {
       expect(VALID_CIRCLE_STATES).toContain('open');
       expect(VALID_CIRCLE_STATES).toContain('settlement_in_progress');
+      expect(VALID_CIRCLE_STATES).toContain('settlement_executing');
       expect(VALID_CIRCLE_STATES).toContain('settled');
-      expect(VALID_CIRCLE_STATES).toHaveLength(3);
+      expect(VALID_CIRCLE_STATES).toHaveLength(4);
     });
   });
 

@@ -5,9 +5,9 @@
 
 ## 1. Updated Types (`frontend/lib/types.ts`)
 
-- [x] **CircleState** - Added enum type matching contract: `'open' | 'settlement_in_progress' | 'settled'`
+- [x] **CircleState** - Added enum type matching contract: `'open' | 'settlement_in_progress' | 'settlement_executing' | 'settled'`
 - [x] **Circle.state** - Added `state: CircleState` field to Circle interface
-- [x] **VALID_CIRCLE_STATES** - Constant array for runtime validation
+- [x] **VALID_CIRCLE_STATES** - Constant array for runtime validation (4 states)
 - [x] **isValidCircleState()** - Type guard function
 - [x] **normalizeU128()** - Utility to normalize contract U128 values (handles string, number, BigInt, wrapped formats)
 - [x] **normalizeI128()** - Utility to normalize contract I128 values (handles negative amounts)
@@ -37,6 +37,7 @@
 
 - [x] Circle status badges now use `state` field:
   - `'settlement_in_progress'` → Yellow badge
+  - `'settlement_executing'` → Orange animated badge (transient state during autopay)
   - `'settled'` → Blue badge  
   - `'open'` → Green/Gray membership badges
 - [x] Owner controls (membership toggle) only visible when `state === 'open'`
