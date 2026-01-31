@@ -1176,6 +1176,7 @@ async fn test_transfer_ownership() -> anyhow::Result<()> {
             "circle_id": &circle_id,
             "new_owner": bob.id()
         }))
+        .deposit(NearToken::from_yoctonear(1))
         .transact()
         .await?
         .into_result()?;
@@ -1225,6 +1226,7 @@ async fn test_non_owner_cannot_transfer_ownership() -> anyhow::Result<()> {
             "circle_id": &circle_id,
             "new_owner": charlie.id()
         }))
+        .deposit(NearToken::from_yoctonear(1))
         .transact()
         .await?;
     
@@ -1252,6 +1254,7 @@ async fn test_transfer_ownership_to_non_member_fails() -> anyhow::Result<()> {
             "circle_id": &circle_id,
             "new_owner": bob.id()
         }))
+        .deposit(NearToken::from_yoctonear(1))
         .transact()
         .await?;
     
@@ -1284,6 +1287,7 @@ async fn test_owner_can_transfer_and_then_leave() -> anyhow::Result<()> {
             "circle_id": &circle_id,
             "new_owner": bob.id()
         }))
+        .deposit(NearToken::from_yoctonear(1))
         .transact()
         .await?
         .into_result()?;
