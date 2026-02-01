@@ -130,9 +130,11 @@ export default function HomePage() {
   }, [toast]);
   
   // Check storage bounds - this is a public query that doesn't require a signed-in account
+  // Use a fast refresh interval to ensure we get this data quickly for registration
   const storageBounds = useContractView<StorageBalanceBounds>(
     'storage_balance_bounds',
-    {}
+    {},
+    { refreshInterval: 5_000 } // Poll every 5 seconds to ensure we get data
   );
   
   // Only check user's storage balance when user is logged in
@@ -201,6 +203,16 @@ export default function HomePage() {
       
       console.log('[Transaction Return] Starting fast polling for registration status...');
       
+      // Set a hard timeout to prevent getting stuck forever (30 seconds)
+      const hardTimeoutId = setTimeout(() => {
+        console.error('[Transaction Return] Hard timeout reached - forcing state reset');
+        setIsCheckingAfterReturn(false);
+        toast.info('Registration check timed out. The transaction may have succeeded - please refresh the page if you see a registration prompt.', {
+          title: 'Timeout',
+          durationMs: 8_000,
+        });
+      }, 30_000);
+      
       // Immediately check once before starting interval
       (async () => {
         try {
@@ -212,6 +224,7 @@ export default function HomePage() {
           
           if (balance && (balance as StorageBalance).total) {
             console.log('[Transaction Return] ✓ Registration confirmed immediately!', balance);
+            clearTimeout(hardTimeoutId);
             mutateStorageBalance(balance as StorageBalance, false);
             setIsCheckingAfterReturn(false);
             
@@ -237,67 +250,82 @@ export default function HomePage() {
       
       // Use aggressive polling for immediate feedback
       let pollCount = 0;
-      const maxPolls = 20; // 20 attempts x 500ms = 10 seconds max
+      const maxPolls = 40; // 40 attempts x 500ms = 20 seconds max
       let successNotified = false;
+      let pollInterval: NodeJS.Timeout | null = null;
       
-      const pollInterval = setInterval(async () => {
-        pollCount++;
-        console.log(`[Transaction Return] Polling (${pollCount}/${maxPolls})...`);
-        
-        try {
-          const balance = await near.viewFunction({
-            contractId,
-            method: 'storage_balance_of',
-            args: { account_id: near.accountId }
-          });
+      const startPolling = () => {
+        pollInterval = setInterval(async () => {
+          pollCount++;
+          console.log(`[Transaction Return] Polling (${pollCount}/${maxPolls})...`);
           
-          if (balance && (balance as StorageBalance).total) {
-            clearInterval(pollInterval);
+          try {
+            const balance = await near.viewFunction({
+              contractId,
+              method: 'storage_balance_of',
+              args: { account_id: near.accountId }
+            });
             
-            if (!successNotified) {
-              successNotified = true;
-              console.log('[Transaction Return] ✓ Registration confirmed!', balance);
+            if (balance && (balance as StorageBalance).total) {
+              if (pollInterval) clearInterval(pollInterval);
+              clearTimeout(hardTimeoutId);
               
-              // Manually update SWR cache
-              mutateStorageBalance(balance as StorageBalance, false);
-              setIsCheckingAfterReturn(false);
-              
-              // Clear any stale circle data from localStorage
-              const storageKey = `nearsplitter:${near.accountId}:circles`;
-              localStorage.removeItem(storageKey);
-              setTrackedCircleIds([]);
-              setCircleMap({});
-              setSelectedCircleId(null);
-              console.log('[Transaction Return] Cleared stale circle data');
+              if (!successNotified) {
+                successNotified = true;
+                console.log('[Transaction Return] ✓ Registration confirmed!', balance);
+                
+                // Manually update SWR cache
+                mutateStorageBalance(balance as StorageBalance, false);
+                setIsCheckingAfterReturn(false);
+                
+                // Clear any stale circle data from localStorage
+                const storageKey = `nearsplitter:${near.accountId}:circles`;
+                localStorage.removeItem(storageKey);
+                setTrackedCircleIds([]);
+                setCircleMap({});
+                setSelectedCircleId(null);
+                console.log('[Transaction Return] Cleared stale circle data');
 
-              toast.success('You\'re all set! Welcome to NearSplitter.', { 
-                title: '✓ Registration Complete',
-                actionLabel: explorerTxUrl ? 'View transaction' : undefined,
-                actionHref: explorerTxUrl ?? undefined,
+                toast.success('You\'re all set! Welcome to NearSplitter.', { 
+                  title: '✓ Registration Complete',
+                  actionLabel: explorerTxUrl ? 'View transaction' : undefined,
+                  actionHref: explorerTxUrl ?? undefined,
+                });
+              }
+            } else if (pollCount >= maxPolls) {
+              if (pollInterval) clearInterval(pollInterval);
+              clearTimeout(hardTimeoutId);
+              setIsCheckingAfterReturn(false);
+              console.warn('[Transaction Return] Polling timed out - registration status check failed');
+              
+              // Force SWR revalidation with cache invalidation
+              mutateStorageBalance();
+              toast.info('Registration status could not be confirmed. Checking again...', { 
+                title: 'Verification Pending',
+                durationMs: 5_000,
               });
             }
-          } else if (pollCount >= maxPolls) {
-            clearInterval(pollInterval);
-            setIsCheckingAfterReturn(false);
-            console.warn('[Transaction Return] Polling timed out - triggering revalidation...');
+          } catch (err) {
+            console.error('[Transaction Return] Poll error:', err);
             
-            // Force SWR revalidation instead of full page reload
-            mutateStorageBalance();
-            toast.info('Still confirming... please wait a moment.', { title: 'Finalizing' });
+            if (pollCount >= maxPolls) {
+              if (pollInterval) clearInterval(pollInterval);
+              clearTimeout(hardTimeoutId);
+              setIsCheckingAfterReturn(false);
+              console.error('[Transaction Return] All polling attempts failed');
+            }
           }
-        } catch (err) {
-          console.error('[Transaction Return] Poll error:', err);
-          
-          if (pollCount >= maxPolls) {
-            clearInterval(pollInterval);
-            setIsCheckingAfterReturn(false);
-          }
-        }
-      }, 500); // Poll every 500ms (much faster!)
+        }, 500); // Poll every 500ms (much faster!)
+      };
+      
+      startPolling();
       
       // Cleanup on unmount
       return () => {
-        clearInterval(pollInterval);
+        if (pollInterval) {
+          clearInterval(pollInterval);
+        }
+        clearTimeout(hardTimeoutId);
       };
     }
   }, [contractId, mutateStorageBalance, near, near.accountId, near.viewFunction, setCircleMap, setSelectedCircleId, setTrackedCircleIds, toast, config.explorerUrl]);
@@ -492,7 +520,15 @@ export default function HomePage() {
 
   const handleRegister = useCallback(async () => {
     if (!storageBounds.data) {
-      toast.info('Loading storage requirements…', { title: 'Please wait' });
+      if (storageBounds.error) {
+        toast.error(`Failed to load storage requirements: ${(storageBounds.error as Error).message}. Retrying...`, { 
+          title: 'Error loading requirements' 
+        });
+        // Try to revalidate
+        storageBounds.mutate?.();
+      } else {
+        toast.info('Loading storage requirements…', { title: 'Please wait' });
+      }
       return;
     }
     try {
@@ -516,7 +552,7 @@ export default function HomePage() {
       console.error('[Registration] Error:', error);
       toast.error((error as Error).message, { title: 'Registration failed' });
     }
-  }, [registerMutation, storageBounds.data, toast]);
+  }, [registerMutation, storageBounds.data, storageBounds.error, storageBounds.mutate, toast]);
 
   const handleCreateCircle = useCallback(
     async (event: FormEvent<HTMLFormElement>) => {
@@ -1387,13 +1423,18 @@ export default function HomePage() {
           requiredDepositLabel="Required deposit"
           requiredDepositValue={storageBounds.data ? `${formatNearAmount(storageBounds.data.min)} Ⓝ` : 'Loading…'}
           storageError={storageBalance.error ? String(storageBalance.error) : null}
+          storageBoundsError={storageBounds.error ? String(storageBounds.error) : null}
           onRetryCheck={() => {
             console.log('[Manual Refresh] Forcing registration status check...');
             storageBalance.mutate();
           }}
+          onRetryStorageBounds={() => {
+            console.log('[Manual Refresh] Retrying storage bounds load...');
+            storageBounds.mutate?.();
+          }}
           onRegister={handleRegister}
           registerLoading={registerMutation.loading}
-          disableRegister={!storageBounds.data || !near.accountId || registerMutation.loading}
+          disableRegister={!near.accountId || registerMutation.loading}
         />
       )}
 

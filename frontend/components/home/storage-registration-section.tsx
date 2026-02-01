@@ -14,6 +14,8 @@ export function StorageRegistrationSection({
   onRegister,
   registerLoading,
   disableRegister,
+  storageBoundsError,
+  onRetryStorageBounds,
 }: {
   isCheckingRegistration: boolean;
   isCheckingAfterReturn?: boolean;
@@ -25,6 +27,8 @@ export function StorageRegistrationSection({
   onRegister: () => void;
   registerLoading: boolean;
   disableRegister: boolean;
+  storageBoundsError?: string | null;
+  onRetryStorageBounds?: () => void;
 }) {
   return (
     <section className="rounded-xl border-2 border-brand-500/50 bg-brand-500/10 p-3 sm:p-4 shadow-xl shadow-near-glow">
@@ -50,13 +54,11 @@ export function StorageRegistrationSection({
               </p>
             </div>
           </div>
-          {!isCheckingAfterReturn && (
-            <div className="flex justify-center">
-              <Button onClick={onRetryCheck} variant="secondary" size="lg">
-                Retry Check
-              </Button>
-            </div>
-          )}
+          <div className="flex justify-center gap-2">
+            <Button onClick={onRetryCheck} variant="secondary" size="lg">
+              {isCheckingAfterReturn ? 'Check Again' : 'Retry Check'}
+            </Button>
+          </div>
         </div>
       ) : (
         <div className="flex items-start gap-4">
@@ -91,6 +93,16 @@ export function StorageRegistrationSection({
               {storageError && (
                 <div className="rounded bg-red-500/10 border border-red-500/30 p-2 mt-2">
                   <p className="text-lg text-red-400">Error checking registration: {storageError}</p>
+                </div>
+              )}
+              {storageBoundsError && (
+                <div className="rounded bg-orange-500/10 border border-orange-500/30 p-3 mt-2 space-y-2">
+                  <p className="text-lg text-orange-400">⚠ Failed to load deposit amount: {storageBoundsError}</p>
+                  {onRetryStorageBounds && (
+                    <Button onClick={onRetryStorageBounds} variant="secondary" size="sm">
+                      Retry Loading
+                    </Button>
+                  )}
                 </div>
               )}
             </div>
