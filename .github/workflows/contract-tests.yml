@@ -35,6 +35,7 @@ jobs:
         with:
           workspaces: |
             contracts/near_splitter
+            contracts/ft_mock
             contracts/integration-tests
 
       - name: Install binaryen (wasm-opt)
@@ -50,11 +51,19 @@ jobs:
         working-directory: contracts/near_splitter
         run: cargo build --target wasm32-unknown-unknown --release
 
+      - name: Build FT Mock WASM (release)
+        working-directory: contracts/ft_mock
+        run: cargo build --target wasm32-unknown-unknown --release
+
       - name: Optimize WASM with wasm-opt
         working-directory: contracts/near_splitter
         run: |
           wasm-opt -Oz -o target/wasm32-unknown-unknown/release/near_splitter_optimized.wasm \
             target/wasm32-unknown-unknown/release/near_splitter.wasm
+
+      - name: Run unit tests (near_splitter)
+        working-directory: contracts/near_splitter
+        run: cargo test --lib -- --nocapture
 
       - name: Run integration tests (sandbox)
         working-directory: contracts/integration-tests

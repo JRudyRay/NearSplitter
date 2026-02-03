@@ -1800,6 +1800,7 @@ dependencies = [
  "anyhow",
  "near-workspaces",
  "serde_json",
+ "sha2",
  "tokio",
 ]
 

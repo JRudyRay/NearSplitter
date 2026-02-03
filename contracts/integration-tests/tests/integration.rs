@@ -1588,3 +1588,134 @@ async fn test_full_expense_splitting_workflow() -> anyhow::Result<()> {
     Ok(())
 }
 
+// ============================================================================
+// FT METADATA INTEGRATION TESTS
+// ============================================================================
+
+/// Path to the ft_mock WASM - needs to be built first
+const FT_MOCK_WASM_FILEPATH: &str = "../ft_mock/target/wasm32-unknown-unknown/release/ft_mock.wasm";
+
+/// Deploy the ft_mock contract
+async fn deploy_ft_mock(
+    worker: &Worker<impl DevNetwork>,
+    name: &str,
+    symbol: &str,
+    decimals: u8,
+) -> anyhow::Result<Contract> {
+    let wasm = std::fs::read(FT_MOCK_WASM_FILEPATH).map_err(|e| {
+        anyhow::anyhow!(
+            "Failed to read FT mock WASM at {}: {}. Run 'cargo build -p ft_mock --target wasm32-unknown-unknown --release' first.",
+            FT_MOCK_WASM_FILEPATH,
+            e
+        )
+    })?;
+    let contract = worker.dev_deploy(&wasm).await?;
+
+    // Initialize with custom metadata
+    contract
+        .call("new")
+        .args_json(json!({
+            "name": name,
+            "symbol": symbol,
+            "decimals": decimals
+        }))
+        .transact()
+        .await?
+        .into_result()?;
+
+    Ok(contract)
+}
+
+/// Test: fetch_ft_metadata caches metadata correctly and refunds excess deposit
+#[tokio::test]
+async fn test_fetch_ft_metadata_caches_and_refunds() -> anyhow::Result<()> {
+    skip_if_unsupported!(worker);
+
+    // Deploy the main contract
+    let contract = init_contract(&worker).await?;
+
+    // Deploy the FT mock contract with custom metadata
+    let ft_mock = deploy_ft_mock(&worker, "Test USDC", "TUSDC", 6).await?;
+
+    // Create a user account
+    let alice = worker.dev_create_account().await?;
+
+    // Register Alice with the main contract
+    register_account(&contract, &alice).await?;
+
+    // Record Alice's balance before fetch_ft_metadata
+    let balance_before = alice.view_account().await?.balance;
+
+    // Call fetch_ft_metadata with a generous deposit (more than needed for storage)
+    // Storage for metadata is small, so 0.01 NEAR should be more than enough
+    let deposit = NearToken::from_millinear(10); // 0.01 NEAR
+    
+    let result = alice
+        .call(contract.id(), "fetch_ft_metadata")
+        .args_json(json!({
+            "token_id": ft_mock.id()
+        }))
+        .deposit(deposit)
+        .gas(near_workspaces::types::Gas::from_tgas(100))
+        .transact()
+        .await?;
+
+    // Check the call succeeded
+    result.into_result()?;
+
+    // Verify metadata is cached
+    let cached_metadata: Option<serde_json::Value> = contract
+        .view("ft_metadata")
+        .args_json(json!({ "token_id": ft_mock.id() }))
+        .await?
+        .json()?;
+
+    assert!(cached_metadata.is_some(), "Metadata should be cached after fetch");
+    let metadata = cached_metadata.unwrap();
+    assert_eq!(metadata["name"].as_str(), Some("Test USDC"));
+    assert_eq!(metadata["symbol"].as_str(), Some("TUSDC"));
+    assert_eq!(metadata["decimals"].as_u64(), Some(6));
+
+    // Check that Alice received a refund (balance should be close to before, minus gas)
+    let balance_after = alice.view_account().await?.balance;
+    
+    // The difference should be much less than the deposit (only gas + small storage cost)
+    // If no refund, the difference would be close to the full deposit
+    let balance_diff = balance_before.as_yoctonear().saturating_sub(balance_after.as_yoctonear());
+    let deposit_yocto = deposit.as_yoctonear();
+    
+    // Refund should mean we lost less than half the deposit to gas+storage
+    // (In practice, storage cost is tiny, so most should be refunded)
+    assert!(
+        balance_diff < deposit_yocto / 2,
+        "Expected refund - lost {} yoctoNEAR but deposited {} yoctoNEAR",
+        balance_diff,
+        deposit_yocto
+    );
+
+    println!("✅ fetch_ft_metadata test passed - metadata cached and excess refunded!");
+
+    Ok(())
+}
+
+/// Test: ft_metadata returns None for uncached tokens
+#[tokio::test]
+async fn test_ft_metadata_returns_none_for_uncached() -> anyhow::Result<()> {
+    skip_if_unsupported!(worker);
+
+    let contract = init_contract(&worker).await?;
+
+    // Query metadata for a token that was never fetched
+    let cached_metadata: Option<serde_json::Value> = contract
+        .view("ft_metadata")
+        .args_json(json!({ "token_id": "nonexistent.token.near" }))
+        .await?
+        .json()?;
+
+    assert!(cached_metadata.is_none(), "Metadata should be None for uncached tokens");
+
+    println!("✅ ft_metadata returns None for uncached tokens!");
+
+    Ok(())
+}
+

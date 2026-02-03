@@ -133,6 +133,9 @@ enum StorageKey {
     CleanupProgress,
     /// Aggregate escrow total per account for O(1) lookup and validation
     EscrowTotalByAccount,
+    /// TOKEN-ALLOWLIST: Approved FT contracts that can be used for settlements
+    /// Only tokens in this list are accepted by ft_on_transfer
+    ApprovedTokens,
 }
 
 #[derive(BorshDeserialize, BorshSerialize, Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -175,6 +178,9 @@ pub struct Circle {
     pub membership_open: bool,
     /// State machine to prevent concurrent modifications during settlement
     pub state: CircleState,
+    /// EPOCH-FIX: Current ledger epoch - incremented after each settlement round.
+    /// Only expenses and settlements with matching epoch are included in balance calculations.
+    pub ledger_epoch: u64,
 }
 
 #[derive(BorshDeserialize, BorshSerialize, Serialize, Deserialize, Clone)]
@@ -196,6 +202,9 @@ pub struct Expense {
     pub amount_yocto: U128,
     pub memo: String,
     pub ts_ms: u64,
+    /// EPOCH-FIX: The ledger epoch when this expense was created.
+    /// Used to filter expenses by settlement round.
+    pub epoch: u64,
 }
 
 #[derive(BorshDeserialize, BorshSerialize, Serialize, Deserialize, Clone)]
@@ -209,6 +218,9 @@ pub struct Settlement {
     pub token: Option<AccountId>,
     pub ts_ms: u64,
     pub tx_kind: String,
+    /// EPOCH-FIX: The ledger epoch when this settlement was recorded.
+    /// Used to filter settlements by settlement round.
+    pub epoch: u64,
 }
 
 /// A claim filed by a participant to dispute an expense.
@@ -313,12 +325,23 @@ pub struct NearSplitter {
     total_storage_deposits: u128,
     /// Global aggregate of all pending payouts - for rescue calculations
     total_pending_payouts: u128,
+    /// TOKEN-ALLOWLIST: Approved FT contracts for settlements
+    /// Key: token contract AccountId, Value: true if approved
+    /// Only tokens in this list are accepted by ft_on_transfer to prevent
+    /// malicious token contracts from spoofing sender_id and draining storage
+    approved_tokens: LookupMap<AccountId, bool>,
 }
 
 #[near_bindgen]
 impl NearSplitter {
-    // SECURITY: Added state check to prevent re-initialization attack
-    // Without this, a malicious actor could reset all contract state
+    /// Initialize the NearSplitter contract.
+    /// 
+    /// This creates all necessary storage collections for circles, expenses,
+    /// settlements, claims, and related tracking data.
+    /// 
+    /// # Security
+    /// - Can only be called once (panics if contract is already initialized)
+    /// - Prevents re-initialization attacks that could reset all contract state
     #[init]
     pub fn new() -> Self {
         // Verify contract is not already initialized
@@ -359,6 +382,8 @@ impl NearSplitter {
             // Storage and payout aggregate tracking for rescue calculations
             total_storage_deposits: 0,
             total_pending_payouts: 0,
+            // TOKEN-ALLOWLIST: Initialize approved tokens map
+            approved_tokens: LookupMap::new(StorageKey::ApprovedTokens),
         }
     }
 
@@ -412,15 +437,36 @@ impl NearSplitter {
             // Storage and payout aggregate tracking for rescue calculations
             total_storage_deposits: 0,
             total_pending_payouts: 0,
+            // TOKEN-ALLOWLIST: Initialize approved tokens map
+            approved_tokens: LookupMap::new(StorageKey::ApprovedTokens),
         }
     }
 
+    /// Get a circle by its ID.
+    /// 
+    /// # Arguments
+    /// * `circle_id` - The unique identifier of the circle
+    /// 
+    /// # Returns
+    /// The Circle struct containing all circle metadata
+    /// 
+    /// # Panics
+    /// Panics if the circle does not exist
     pub fn get_circle(&self, circle_id: String) -> Circle {
         self.circles
             .get(&circle_id)
             .unwrap_or_else(|| env::panic_str("Circle not found"))
     }
 
+    /// List all circles owned by a specific account.
+    /// 
+    /// # Arguments
+    /// * `owner` - The account ID of the circle owner
+    /// * `from` - Starting index for pagination (0-based)
+    /// * `limit` - Maximum number of results (capped at 100)
+    /// 
+    /// # Returns
+    /// Vector of Circle structs owned by the account
     pub fn list_circles_by_owner(
         &self,
         owner: AccountId,
@@ -656,6 +702,18 @@ impl NearSplitter {
         self.pending_claims_count.remove(&circle_id.to_string());
     }
 
+    /// List expenses for a circle with pagination.
+    /// 
+    /// # Arguments
+    /// * `circle_id` - The circle to list expenses for
+    /// * `from` - Starting index for pagination (0-based)
+    /// * `limit` - Maximum number of results (capped at 100)
+    /// 
+    /// # Returns
+    /// Vector of Expense structs for the circle
+    /// 
+    /// # Note
+    /// May contain gaps where expenses were deleted (tombstone design).
     pub fn list_expenses(
         &self,
         circle_id: String,
@@ -675,6 +733,15 @@ impl NearSplitter {
         results
     }
 
+    /// List settlements for a circle with pagination.
+    /// 
+    /// # Arguments
+    /// * `circle_id` - The circle to list settlements for
+    /// * `from` - Starting index for pagination (0-based)
+    /// * `limit` - Maximum number of results (capped at 100)
+    /// 
+    /// # Returns
+    /// Vector of Settlement structs for the circle
     pub fn list_settlements(
         &self,
         circle_id: String,
@@ -700,11 +767,13 @@ impl NearSplitter {
     /// Compute net balances for all members in a circle.
     /// Positive balance = creditor (owed money), Negative balance = debtor (owes money).
     /// Expenses with pending claims are excluded from the calculation.
+    /// EPOCH-FIX: Only includes expenses and settlements from the current epoch.
     pub fn compute_balances(&self, circle_id: String) -> Vec<BalanceView> {
         let circle = self
             .circles
             .get(&circle_id)
             .unwrap_or_else(|| env::panic_str("Circle not found"));
+        let current_epoch = circle.ledger_epoch;
         let expenses = self.iter_expenses_by_circle(&circle_id);
         
         // Get expense IDs that have pending claims (disputed expenses)
@@ -721,6 +790,11 @@ impl NearSplitter {
         }
 
         for expense in expenses {
+            // EPOCH-FIX: Skip expenses from previous epochs
+            if expense.epoch != current_epoch {
+                continue;
+            }
+            
             // Skip expenses with pending claims
             if disputed_expense_ids.contains(&expense.id) {
                 continue;
@@ -768,8 +842,13 @@ impl NearSplitter {
         }
 
         // Apply settlements to reduce outstanding balances.
+        // EPOCH-FIX: Only include settlements from the current epoch.
         let settlements = self.iter_settlements_by_circle(&circle_id);
         for settlement in settlements {
+            // EPOCH-FIX: Skip settlements from previous epochs
+            if settlement.epoch != current_epoch {
+                continue;
+            }
             if settlement.token.is_some() {
                 continue;
             }
@@ -940,6 +1019,7 @@ impl NearSplitter {
             locked: false,
             membership_open: true, // New circles are open by default
             state: CircleState::Open,  // Initialize in Open state
+            ledger_epoch: 0, // EPOCH-FIX: Start at epoch 0
         };
 
         self.circles.insert(&circle_id, &circle);
@@ -951,7 +1031,7 @@ impl NearSplitter {
         // Add owner to member index
         self.add_member_to_index(&owner, &circle_id);
 
-        self.apply_storage_cost(&owner, initial_storage, true);
+        self.apply_storage_cost(&owner, initial_storage, true, None);
 
         self.emit_event(
             "circle_create",
@@ -1037,7 +1117,7 @@ impl NearSplitter {
         // Add to member index
         self.add_member_to_index(&account, &circle_id);
 
-        self.apply_storage_cost(&account, initial_storage, true);
+        self.apply_storage_cost(&account, initial_storage, true, None);
 
         self.emit_event(
             "circle_join",
@@ -1099,7 +1179,7 @@ impl NearSplitter {
         // E2-FIX: Remove dead escrow handling - we already required escrowed == 0
         self.escrow_deposits.remove(&escrow_key);
 
-        self.apply_storage_cost(&account, initial_storage, false);
+        self.apply_storage_cost(&account, initial_storage, false, None);
         
         self.emit_event(
             "circle_leave",
@@ -1151,7 +1231,7 @@ impl NearSplitter {
         circle.owner = new_owner.clone();
         self.circles.insert(&circle_id, &circle);
 
-        self.apply_storage_cost(&account, initial_storage, true);
+        self.apply_storage_cost(&account, initial_storage, true, None);
         
         self.emit_event(
             "ownership_transferred",
@@ -1239,7 +1319,7 @@ impl NearSplitter {
         self.cleanup_progress.remove(&format!("{}:settlements", circle_id));
         self.cleanup_progress.remove(&format!("{}:claims", circle_id));
 
-        self.apply_storage_cost(&account, initial_storage, false);
+        self.apply_storage_cost(&account, initial_storage, false, None);
 
         self.emit_event(
             "circle_deleted",
@@ -1293,7 +1373,7 @@ impl NearSplitter {
             self.claims_len.get(&circle_id).unwrap_or(0)
         };
 
-        self.apply_storage_cost(&account, initial_storage, false);
+        self.apply_storage_cost(&account, initial_storage, false, None);
 
         self.emit_event(
             "circle_cleanup_batch",
@@ -1324,6 +1404,20 @@ impl NearSplitter {
         (settlements_total, settlements_cleared, claims_total, claims_cleared)
     }
 
+    /// Add an expense to a circle. Any circle member can add expenses.
+    /// 
+    /// # Storage Model
+    /// All circle data storage (expenses, settlements, claims) is charged to the circle owner's
+    /// storage deposit, not the caller's. This ensures predictable costs for the circle owner
+    /// who created and manages the circle.
+    /// 
+    /// # Requirements
+    /// - Caller must be registered (have storage deposit)
+    /// - Caller must be a circle member
+    /// - Circle must not be locked for settlement
+    /// - Amount must be positive and fit in i128
+    /// - Shares must sum to 10,000 bps (100%)
+    /// - All participants must be circle members
     #[payable]
     pub fn add_expense(
         &mut self,
@@ -1414,6 +1508,7 @@ impl NearSplitter {
             amount_yocto,
             memo: memo.clone(),
             ts_ms,
+            epoch: circle.ledger_epoch, // EPOCH-FIX: Record current epoch
         };
 
         let index_key = Self::expense_index_key(&circle_id, current_len);
@@ -1424,7 +1519,9 @@ impl NearSplitter {
         // Reset confirmations when new expense is added
         self.clear_confirmations_for_circle(&circle_id, &circle.members);
 
-        self.apply_storage_cost(&payer, initial_storage, true);
+        // STORAGE-FIX: Charge circle owner's storage (not caller's) for circle data.
+        // This ensures storage refunds go to the correct account when data is cleared.
+        self.apply_storage_cost(&circle.owner, initial_storage, false, None);
 
         self.emit_event(
             "expense_add",
@@ -1444,9 +1541,12 @@ impl NearSplitter {
     /// Cannot delete expenses that have pending claims.
     /// Cannot delete expenses while circle is locked for settlement.
     /// 
+    /// # Storage Model
+    /// Storage credits from deletion are returned to the circle owner's storage balance,
+    /// matching the owner-funded storage model where the owner pays for all circle data.
+    /// 
     /// # Security
     /// Requires exactly 1 yoctoNEAR attached to confirm this sensitive operation.
-    /// Any storage credits released by deletion are returned to the caller's storage balance.
     #[payable]
     pub fn delete_expense(&mut self, circle_id: String, expense_id: String) {
         assert_one_yocto();
@@ -1499,7 +1599,8 @@ impl NearSplitter {
         // Reset confirmations since balances changed
         self.clear_confirmations_for_circle(&circle_id, &circle.members);
 
-        self.apply_storage_cost(&caller, initial_storage, false);
+        // STORAGE-FIX: Refund to circle owner (matches add_expense charging owner)
+        self.apply_storage_cost(&circle.owner, initial_storage, false, None);
 
         self.emit_event(
             "expense_deleted",
@@ -1519,6 +1620,10 @@ impl NearSplitter {
     /// File a claim to dispute an expense. Only participants in the expense can file claims.
     /// Reasons: "wrong_amount", "wrong_participants", "remove_expense"
     /// Cannot file claims while settlement is in progress.
+    /// 
+    /// # Storage Model
+    /// Claim storage is charged to the circle owner's storage balance, not the claimant's.
+    /// This ensures consistent owner-funded storage for all circle data.
     #[payable]
     pub fn file_claim(
         &mut self,
@@ -1648,7 +1753,9 @@ impl NearSplitter {
         // Reset confirmations when claim is filed
         self.clear_confirmations_for_circle(&circle_id, &circle.members);
 
-        self.apply_storage_cost(&claimant, initial_storage, true);
+        // STORAGE-FIX: Charge circle owner's storage (not claimant's) for circle data.
+        // This ensures storage refunds go to the correct account when claims are cleared.
+        self.apply_storage_cost(&circle.owner, initial_storage, false, None);
 
         self.emit_event(
             "claim_filed",
@@ -1665,6 +1772,10 @@ impl NearSplitter {
     /// Approve a claim. Only the original payer of the expense can approve.
     /// This modifies or removes the expense based on the claim reason.
     /// Cannot approve claims while settlement is in progress.
+    /// 
+    /// # Storage Model
+    /// Storage changes from claim resolution are charged/credited to the circle owner,
+    /// consistent with the owner-funded storage model for all circle data.
     /// 
     /// # Security
     /// Requires exactly 1 yoctoNEAR attached to confirm this sensitive operation.
@@ -1809,7 +1920,8 @@ impl NearSplitter {
         // Reset confirmations since balances changed
         self.clear_confirmations_for_circle(&circle_id, &circle.members);
 
-        self.apply_storage_cost(&caller, initial_storage, false);
+        // STORAGE-FIX: Refund to circle owner (matches file_claim charging owner)
+        self.apply_storage_cost(&circle.owner, initial_storage, false, None);
 
         self.emit_event(
             "claim_approved",
@@ -1826,6 +1938,10 @@ impl NearSplitter {
     /// Reject a claim. Only the original payer of the expense can reject.
     /// This marks the claim as rejected and the expense remains unchanged.
     /// Cannot reject claims while settlement is in progress.
+    /// 
+    /// # Storage Model
+    /// Storage changes from claim resolution are charged/credited to the circle owner,
+    /// consistent with the owner-funded storage model for all circle data.
     /// 
     /// # Security
     /// Requires exactly 1 yoctoNEAR attached to confirm this sensitive operation.
@@ -1886,7 +2002,8 @@ impl NearSplitter {
         // Reset confirmations to re-evaluate
         self.clear_confirmations_for_circle(&circle_id, &circle.members);
 
-        self.apply_storage_cost(&caller, initial_storage, false);
+        // STORAGE-FIX: Refund to circle owner (matches file_claim charging owner)
+        self.apply_storage_cost(&circle.owner, initial_storage, false, None);
 
         self.emit_event(
             "claim_rejected",
@@ -1899,7 +2016,16 @@ impl NearSplitter {
         );
     }
 
-    /// Get all claims for a circle, optionally filtered by status
+    /// List all claims for a circle with optional status filter and pagination.
+    /// 
+    /// # Arguments
+    /// * `circle_id` - The circle to list claims for
+    /// * `status` - Optional filter: "pending", "approved", or "rejected"
+    /// * `from` - Starting index for pagination (0-based)
+    /// * `limit` - Maximum number of results (capped at 100)
+    /// 
+    /// # Returns
+    /// Vector of Claim structs matching the filter
     pub fn list_claims(
         &self,
         circle_id: String,
@@ -1920,14 +2046,28 @@ impl NearSplitter {
         paginate_vec(&filtered, from.unwrap_or(0), safe_limit)
     }
 
-    /// Get a specific claim by ID
+    /// Get a specific claim by its ID.
+    /// 
+    /// # Arguments
+    /// * `circle_id` - The circle the claim belongs to
+    /// * `claim_id` - The unique claim identifier
+    /// 
+    /// # Returns
+    /// The Claim if found and belongs to the specified circle, None otherwise
     pub fn get_claim(&self, circle_id: String, claim_id: String) -> Option<Claim> {
         self.claim_by_id
             .get(&claim_id)
             .and_then(|claim| if claim.circle_id == circle_id { Some(claim) } else { None })
     }
 
-    /// Get all claims for a specific expense
+    /// Get all claims for a specific expense.
+    /// 
+    /// # Arguments
+    /// * `circle_id` - The circle the expense belongs to
+    /// * `expense_id` - The expense to get claims for
+    /// 
+    /// # Returns
+    /// Vector of all claims (pending, approved, rejected) for the expense
     pub fn get_expense_claims(&self, circle_id: String, expense_id: String) -> Vec<Claim> {
         // NOTE: Bounded scan across claims (MAX_CLAIMS_PER_CIRCLE)
         self.iter_claims_by_circle(&circle_id)
@@ -1936,13 +2076,25 @@ impl NearSplitter {
             .collect()
     }
 
-    /// Get the count of pending claims for a circle
-    /// D1-FIX: Now O(1) using cached counter instead of O(n) iteration
+    /// Get the count of pending claims for a circle.
+    /// Uses O(1) cached counter instead of O(n) iteration.
+    /// 
+    /// # Arguments
+    /// * `circle_id` - The circle to check
+    /// 
+    /// # Returns
+    /// Number of pending claims in the circle
     pub fn get_pending_claims_count(&self, circle_id: String) -> u64 {
         self.pending_claims_count.get(&circle_id).unwrap_or(0)
     }
 
-    /// Check if a circle has any pending claims
+    /// Check if a circle has any pending claims.
+    /// 
+    /// # Arguments
+    /// * `circle_id` - The circle to check
+    /// 
+    /// # Returns
+    /// true if there are pending claims, false otherwise
     pub fn has_pending_claims(&self, circle_id: String) -> bool {
         self.get_pending_claims_count(circle_id) > 0
     }
@@ -1950,7 +2102,13 @@ impl NearSplitter {
     /// Make a direct NEAR payment to another circle member.
     /// The payment is recorded as a settlement in the circle's history.
     /// Cannot pay yourself. Both payer and recipient must be circle members.
-    /// SECURITY: Requires exact deposit amount for the transfer
+    /// 
+    /// # Storage Model
+    /// Settlement storage is charged to the circle owner's storage balance,
+    /// consistent with the owner-funded storage model for all circle data.
+    /// 
+    /// # Security
+    /// Requires exact deposit amount for the transfer.
     #[payable]
     pub fn pay_native(&mut self, circle_id: String, to: AccountId) {
         let payer = env::predecessor_account_id();
@@ -1992,10 +2150,12 @@ impl NearSplitter {
             token: None,
             ts_ms: timestamp_ms(),
             tx_kind: "native".to_string(),
+            epoch: circle.ledger_epoch, // EPOCH-FIX: Record current epoch
         };
         self.record_settlement(settlement);
 
-        self.apply_storage_cost(&payer, initial_storage, false);
+        // STORAGE-FIX: Charge circle owner's storage for settlements
+        self.apply_storage_cost(&circle.owner, initial_storage, false, None);
 
         Promise::new(to).transfer(yocto_to_token(amount));
     }
@@ -2029,6 +2189,13 @@ impl NearSplitter {
             return PromiseOrValue::Value(amount);
         }
         let token_contract = env::predecessor_account_id();
+        
+        // TOKEN-ALLOWLIST: Reject unapproved token contracts to prevent malicious
+        // tokens from spoofing sender_id and draining members' storage deposits
+        if !self.approved_tokens.get(&token_contract).unwrap_or(false) {
+            env::log_str("ERROR: Token contract not approved for settlements");
+            return PromiseOrValue::Value(amount);
+        }
         
         // Parse message and validate format
         let payload: TransferMessage = match serde_json::from_str(&msg) {
@@ -2110,6 +2277,68 @@ impl NearSplitter {
                 .with_static_gas(gas_ft_callback())
                 .on_ft_forward_complete(sender_id, amount, token_contract, payload.circle_id, payload.to)
         ))
+    }
+
+    // =========================================================================
+    // TOKEN ALLOWLIST MANAGEMENT
+    // =========================================================================
+
+    /// Add a token contract to the approved tokens list.
+    /// Only the contract owner (the account that deployed this contract) can call this.
+    /// 
+    /// # Security
+    /// This prevents malicious token contracts from spoofing sender_id and draining
+    /// members' storage deposits through fake ft_on_transfer calls.
+    /// 
+    /// # Arguments
+    /// * `token_id` - The account ID of the FT contract to approve
+    pub fn approve_token(&mut self, token_id: AccountId) {
+        // Only contract owner can approve tokens
+        require!(
+            env::predecessor_account_id() == env::current_account_id(),
+            "Only contract owner can approve tokens"
+        );
+        
+        self.approved_tokens.insert(&token_id, &true);
+        
+        self.emit_event(
+            "token_approved",
+            json!([{
+                "token_id": token_id,
+            }]),
+        );
+    }
+
+    /// Remove a token contract from the approved tokens list.
+    /// Only the contract owner can call this.
+    /// 
+    /// # Arguments
+    /// * `token_id` - The account ID of the FT contract to remove
+    pub fn revoke_token(&mut self, token_id: AccountId) {
+        require!(
+            env::predecessor_account_id() == env::current_account_id(),
+            "Only contract owner can revoke tokens"
+        );
+        
+        self.approved_tokens.remove(&token_id);
+        
+        self.emit_event(
+            "token_revoked",
+            json!([{
+                "token_id": token_id,
+            }]),
+        );
+    }
+
+    /// Check if a token contract is approved for use in settlements.
+    /// 
+    /// # Arguments
+    /// * `token_id` - The account ID of the FT contract to check
+    /// 
+    /// # Returns
+    /// true if the token is approved, false otherwise
+    pub fn is_token_approved(&self, token_id: AccountId) -> bool {
+        self.approved_tokens.get(&token_id).unwrap_or(false)
     }
 
     /// Retrieve cached fungible token metadata for display purposes.
@@ -2218,7 +2447,8 @@ impl NearSplitter {
                 // Store metadata with storage cost accounting
                 let initial_storage = env::storage_usage();
                 self.metadata_cache.insert(&token_id, &metadata);
-                self.apply_storage_cost(&caller, initial_storage, true);
+                // REFUND-FIX: Pass caller as explicit refund target since predecessor is contract in callback
+                self.apply_storage_cost(&caller, initial_storage, true, Some(&caller));
 
                 self.emit_event(
                     "ft_metadata_cached",
@@ -2239,6 +2469,11 @@ impl NearSplitter {
         }
     }
 
+    /// Get the storage balance bounds for registration.
+    /// 
+    /// # Returns
+    /// StorageBalanceBounds with minimum required and maximum allowed storage deposits.
+    /// The minimum is the recommended amount (~0.25 NEAR) for typical usage.
     pub fn storage_balance_bounds(&self) -> StorageBalanceBounds {
         // min = recommended amount so users deposit enough for typical usage
         // This ensures users have available credit for operations like creating circles
@@ -2317,6 +2552,13 @@ impl NearSplitter {
         }
     }
 
+    /// Get the storage balance for an account.
+    /// 
+    /// # Arguments
+    /// * `account_id` - The account to check storage balance for
+    /// 
+    /// # Returns
+    /// StorageBalance with total and available amounts, or None if not registered
     pub fn storage_balance_of(&self, account_id: AccountId) -> Option<StorageBalance> {
         self.storage_deposits
             .get(&account_id)
@@ -2329,6 +2571,17 @@ impl NearSplitter {
             })
     }
 
+    /// Withdraw available storage balance.
+    /// 
+    /// # Arguments
+    /// * `amount` - Amount to withdraw in yoctoNEAR. If None, withdraws all available.
+    /// 
+    /// # Returns
+    /// StorageBalance with updated total and available amounts
+    /// 
+    /// # Security
+    /// Requires exactly 1 yoctoNEAR attached for security confirmation.
+    /// Cannot withdraw below minimum locked storage (registration cost).
     #[payable]
     pub fn storage_withdraw(&mut self, amount: Option<U128>) -> StorageBalance {
         require!(
@@ -2366,6 +2619,20 @@ impl NearSplitter {
         }
     }
 
+    /// Unregister from the contract and withdraw all storage deposit.
+    /// 
+    /// # Arguments
+    /// * `force` - If true, also refunds pending payouts and escrowed funds
+    /// 
+    /// # Returns
+    /// true if successfully unregistered, false if not registered
+    /// 
+    /// # Requirements
+    /// - Cannot be a member of any circle
+    /// - Unless force=true, cannot have escrowed funds or pending payouts
+    /// 
+    /// # Security
+    /// Requires exactly 1 yoctoNEAR attached for security confirmation.
     #[payable]
     pub fn storage_unregister(&mut self, force: Option<bool>) -> bool {
         require!(
@@ -2440,15 +2707,31 @@ impl NearSplitter {
         env::storage_byte_cost().as_yoctonear() * (STORAGE_BYTES_RECOMMENDED as u128)
     }
 
-    fn apply_storage_cost(&mut self, account_id: &AccountId, initial_usage: u64, use_attached: bool) {
+    /// Apply storage cost accounting.
+    /// 
+    /// # Arguments
+    /// * `account_id` - Account to charge/credit storage from
+    /// * `initial_usage` - Storage usage before the operation
+    /// * `use_attached` - Whether to use attached deposit for payment
+    /// * `explicit_refund_to` - Explicit refund target (required in callbacks where predecessor is contract itself)
+    fn apply_storage_cost(
+        &mut self,
+        account_id: &AccountId,
+        initial_usage: u64,
+        use_attached: bool,
+        explicit_refund_to: Option<&AccountId>,
+    ) {
         let final_usage = env::storage_usage();
         let attached = if use_attached {
             env::attached_deposit().as_yoctonear()
         } else {
             0
         };
-        let refund_target = if use_attached {
-            Some(env::predecessor_account_id())
+        // REFUND-FIX: Use explicit refund target if provided, otherwise fall back to predecessor
+        let refund_target: Option<AccountId> = if use_attached {
+            explicit_refund_to
+                .cloned()
+                .or_else(|| Some(env::predecessor_account_id()))
         } else {
             None
         };
@@ -2641,22 +2924,40 @@ impl NearSplitter {
         }
     }
 
-    /// Get total escrow for an account across all circles (view helper)
+    /// Get total escrow held by an account across all circles.
+    /// 
+    /// # Arguments
+    /// * `account_id` - The account to check escrow for
+    /// 
+    /// # Returns
+    /// Total escrowed amount in yoctoNEAR
     pub fn get_escrow_total(&self, account_id: AccountId) -> U128 {
         U128(self.escrow_total_by_account.get(&account_id).unwrap_or(0))
     }
 
-    /// Get global escrow total (view helper for debugging)
+    /// Get global total of all escrowed funds in the contract.
+    /// Useful for debugging and rescue calculations.
+    /// 
+    /// # Returns
+    /// Total escrow across all accounts in yoctoNEAR
     pub fn get_total_escrow(&self) -> U128 {
         U128(self.total_escrow)
     }
 
-    /// Get global storage deposits total (view helper for debugging/rescue)
+    /// Get global total of all storage deposits in the contract.
+    /// Used for rescue calculations to ensure user funds are protected.
+    /// 
+    /// # Returns
+    /// Total storage deposits across all accounts in yoctoNEAR
     pub fn get_total_storage_deposits(&self) -> U128 {
         U128(self.total_storage_deposits)
     }
 
-    /// Get global pending payouts total (view helper for debugging/rescue)
+    /// Get global total of all pending payouts in the contract.
+    /// Used for rescue calculations to ensure user funds are protected.
+    /// 
+    /// # Returns
+    /// Total pending payouts across all accounts in yoctoNEAR
     pub fn get_total_pending_payouts(&self) -> U128 {
         U128(self.total_pending_payouts)
     }
@@ -2731,10 +3032,12 @@ impl NearSplitter {
                     );
                     return U128(0);
                 }
+                // STORAGE-FIX: Get circle owner for storage accounting
+                let circle = self.circles.get(&circle_id).unwrap();
                 let initial_storage = env::storage_usage();
                 let available_storage = self
                     .storage_deposits
-                    .get(&sender_id)
+                    .get(&circle.owner)
                     .unwrap_or(0)
                     .saturating_sub(self.required_storage_cost());
                 let estimated_cost = env::storage_byte_cost().as_yoctonear()
@@ -2765,10 +3068,12 @@ impl NearSplitter {
                     token: Some(token_contract.clone()),
                     ts_ms: timestamp_ms(),
                     tx_kind: "ft_transfer".to_string(),
+                    epoch: circle.ledger_epoch, // EPOCH-FIX: Record current epoch
                 };
                 self.record_settlement(settlement);
 
-                self.apply_storage_cost(&sender_id, initial_storage, false);
+                // STORAGE-FIX: Charge circle owner's storage for settlements
+                self.apply_storage_cost(&circle.owner, initial_storage, false, None);
 
                 self.emit_event(
                     "ft_transfer_success",
@@ -2808,8 +3113,13 @@ impl NearSplitter {
     /// Only callable by the contract itself (requires DAO or multisig to trigger).
     /// This is a safety mechanism for tokens that got stuck due to failed ft_transfer calls.
     /// 
+    /// # Arguments
+    /// * `token_id` - The FT contract address
+    /// * `receiver_id` - The account to receive the rescued tokens
+    /// * `amount` - The amount of tokens to rescue
+    /// 
     /// # Security
-    /// - #[private] macro already verifies predecessor == current_account_id
+    /// - #[private] macro verifies predecessor == current_account_id
     /// - Requires a privileged call (e.g., DAO proposal) to invoke
     #[private]
     pub fn rescue_stuck_ft(
@@ -2839,11 +3149,14 @@ impl NearSplitter {
     /// Admin function to rescue stuck NEAR from failed autopay settlements.
     /// Only callable by the contract itself (requires DAO or multisig to trigger).
     /// 
+    /// # Arguments
+    /// * `receiver_id` - The account to receive the rescued NEAR
+    /// * `amount` - The amount of NEAR to rescue in yoctoNEAR
+    /// 
     /// # Security
     /// - #[private] macro verifies predecessor == current_account_id
+    /// - Cannot rescue more than truly "stuck" funds (excludes user deposits/escrow/payouts)
     /// - Requires a privileged call (e.g., DAO proposal) to invoke
-    /// - FIX-5: Cannot rescue more than truly "stuck" funds (excludes user deposits)
-    /// SECURITY: Added parallel to rescue_stuck_ft for NEAR token recovery
     #[private]
     pub fn rescue_stuck_near(
         &self,
@@ -3076,7 +3389,7 @@ impl NearSplitter {
         confirmations_count = safe_increment_u64(confirmations_count, "confirmations_count");
         self.confirmations_count.insert(&circle_id, &confirmations_count);
 
-        self.apply_storage_cost(&account, initial_storage, false);
+        self.apply_storage_cost(&account, initial_storage, false, None);
 
         if refund_amount > 0 {
             Promise::new(account.clone()).transfer(yocto_to_token(refund_amount));
@@ -3145,17 +3458,17 @@ impl NearSplitter {
                 self.autopay_preferences.remove(&autopay_key);
             }
             
-            self.clear_expenses_for_circle(&circle_id);
-            // NOTE: Settlements are preserved for historical record (gas-safe design)
             self.clear_confirmations_for_circle(&circle_id, &circle.members);
             
+            // EPOCH-FIX: Increment epoch instead of clearing expenses/settlements
             let mut updated_circle = circle.clone();
             updated_circle.locked = false;
             updated_circle.membership_open = true;
             updated_circle.state = CircleState::Settled;
+            updated_circle.ledger_epoch = circle.ledger_epoch.saturating_add(1); // EPOCH-FIX: New epoch
             self.circles.insert(&circle_id, &updated_circle);
 
-            self.apply_storage_cost(&owner, initial_storage, false);
+            self.apply_storage_cost(&owner, initial_storage, false, None);
             
             // Make all transfers after state is finalized
             for (recipient, amount) in transfers_to_make {
@@ -3244,6 +3557,7 @@ impl NearSplitter {
                 token: None,
                 ts_ms: timestamp_ms(),
                 tx_kind: "autopay_escrow".to_string(),
+                epoch: circle.ledger_epoch, // EPOCH-FIX: Record current epoch
             };
             self.record_settlement(settlement);
 
@@ -3284,19 +3598,21 @@ impl NearSplitter {
             });
         }
 
-        // Clear expenses and confirmations before transfers
-        // NOTE: Settlements are preserved for historical record (gas-safe design)
-        self.clear_expenses_for_circle(&circle_id);
+        // EPOCH-FIX: Instead of clearing expenses/settlements, increment the epoch.
+        // This preserves historical data while ensuring compute_balances returns zero
+        // for the new epoch (no expenses or settlements exist for the new epoch yet).
+        // Confirmations are still cleared as they don't carry epoch.
         self.clear_confirmations_for_circle(&circle_id, &circle.members);
         
-        // Update circle: unlock, reopen membership, mark as settled
+        // Update circle: unlock, reopen membership, mark as settled, increment epoch
         let mut updated_circle = circle.clone();
         updated_circle.locked = false;
         updated_circle.membership_open = true;
         updated_circle.state = CircleState::Settled;
+        updated_circle.ledger_epoch = circle.ledger_epoch.saturating_add(1); // EPOCH-FIX: New epoch
         self.circles.insert(&circle_id, &updated_circle);
 
-        self.apply_storage_cost(&owner, initial_storage, false);
+        self.apply_storage_cost(&owner, initial_storage, false, None);
 
         // Credit pending payouts (pull-payment pattern)
         for (recipient, total) in aggregated {
@@ -3334,7 +3650,14 @@ impl NearSplitter {
         );
     }
 
-    /// Get the list of accounts that have confirmed the ledger for a circle
+    /// Get the list of accounts that have confirmed the ledger for a circle.
+    /// 
+    /// # Arguments
+    /// * `circle_id` - The circle to get confirmations for
+    /// 
+    /// # Returns
+    /// Vector of AccountIds that have confirmed the ledger.
+    /// Returns empty vector if circle doesn't exist.
     pub fn get_confirmations(&self, circle_id: String) -> Vec<AccountId> {
         let circle = self.circles.get(&circle_id);
         if circle.is_none() {
@@ -3352,7 +3675,14 @@ impl NearSplitter {
             .collect()
     }
 
-    /// Check if all members have confirmed the ledger
+    /// Check if all members have confirmed the ledger for a circle.
+    /// 
+    /// # Arguments
+    /// * `circle_id` - The circle to check
+    /// 
+    /// # Returns
+    /// true if all members have confirmed, false otherwise.
+    /// Returns false if circle doesn't exist.
     pub fn is_fully_confirmed(&self, circle_id: String) -> bool {
         let circle = self.circles.get(&circle_id);
         if circle.is_none() {
@@ -3417,7 +3747,7 @@ impl NearSplitter {
         circle.state = CircleState::Open;
         self.circles.insert(&circle_id, &circle);
 
-        self.apply_storage_cost(&account, initial_storage, false);
+        self.apply_storage_cost(&account, initial_storage, false, None);
         
         self.emit_event(
             "confirmations_reset",
@@ -3505,7 +3835,7 @@ impl NearSplitter {
         circle.state = CircleState::Open;
         self.circles.insert(&circle_id, &circle);
 
-        self.apply_storage_cost(&account, initial_storage, false);
+        self.apply_storage_cost(&account, initial_storage, false, None);
 
         self.emit_event(
             "settlement_cancelled",
@@ -3570,7 +3900,14 @@ impl NearSplitter {
         );
     }
 
-    /// Check if circle is open for new members
+    /// Check if a circle is open for new members to join.
+    /// 
+    /// # Arguments
+    /// * `circle_id` - The circle to check
+    /// 
+    /// # Returns
+    /// true if membership is open, false otherwise.
+    /// Returns false if circle doesn't exist.
     pub fn is_membership_open(&self, circle_id: String) -> bool {
         self.circles
             .get(&circle_id)
@@ -3693,7 +4030,7 @@ impl NearSplitter {
                 }]),
             );
 
-            self.apply_storage_cost(&account, initial_storage, false);
+            self.apply_storage_cost(&account, initial_storage, false, None);
 
             // SECURITY: Transfer AFTER all state changes (checks-effects-interactions)
             if refund_amount > 0 {
@@ -3713,20 +4050,34 @@ impl NearSplitter {
             }]),
         );
 
-        self.apply_storage_cost(&account, initial_storage, false);
+        self.apply_storage_cost(&account, initial_storage, false, None);
 
         if refund_amount > 0 {
             Promise::new(account).transfer(yocto_to_token(refund_amount));
         }
     }
 
-    /// Get autopay preference for a specific member in a circle
+    /// Get autopay preference for a specific member in a circle.
+    /// 
+    /// # Arguments
+    /// * `circle_id` - The circle to check
+    /// * `account_id` - The member to check autopay preference for
+    /// 
+    /// # Returns
+    /// true if autopay is enabled, false otherwise
     pub fn get_autopay(&self, circle_id: String, account_id: AccountId) -> bool {
         let key = format!("{}:{}", circle_id, account_id);
         self.autopay_preferences.get(&key).unwrap_or(false)
     }
 
-    /// Check if all members in a circle have autopay enabled
+    /// Check if all members in a circle have autopay enabled.
+    /// 
+    /// # Arguments
+    /// * `circle_id` - The circle to check
+    /// 
+    /// # Returns
+    /// true if all members have autopay enabled, false otherwise.
+    /// Returns false if circle doesn't exist.
     pub fn all_members_autopay(&self, circle_id: String) -> bool {
         let circle = self.circles.get(&circle_id);
         if circle.is_none() {
@@ -3740,8 +4091,14 @@ impl NearSplitter {
         })
     }
 
-    /// Get required deposit amount for a member to enable autopay
-    /// Returns 0 if user is creditor or even, otherwise returns debt amount
+    /// Get the required deposit amount for a member to enable autopay.
+    /// 
+    /// # Arguments
+    /// * `circle_id` - The circle to check
+    /// * `account_id` - The member to check required deposit for
+    /// 
+    /// # Returns
+    /// The debt amount in yoctoNEAR if user is a debtor, 0 if creditor or even
     pub fn get_required_autopay_deposit(&self, circle_id: String, account_id: AccountId) -> U128 {
         let balances = self.compute_balances(circle_id);
         let user_balance = balances
@@ -3757,7 +4114,14 @@ impl NearSplitter {
         }
     }
 
-    /// Get current escrow deposit for a member in a circle
+    /// Get current escrow deposit for a member in a specific circle.
+    /// 
+    /// # Arguments
+    /// * `circle_id` - The circle to check
+    /// * `account_id` - The member to check escrow for
+    /// 
+    /// # Returns
+    /// The escrowed amount in yoctoNEAR for this circle/member pair
     pub fn get_escrow_deposit(&self, circle_id: String, account_id: AccountId) -> U128 {
         let key = format!("{}:{}", circle_id, account_id);
         U128(self.escrow_deposits.get(&key).unwrap_or(0))
@@ -3765,13 +4129,25 @@ impl NearSplitter {
 
     /// Get the pending payout balance for an account.
     /// This is the amount that can be withdrawn via withdraw_payout().
+    /// 
+    /// # Arguments
+    /// * `account_id` - The account to check pending payouts for
+    /// 
+    /// # Returns
+    /// The pending payout amount in yoctoNEAR
     pub fn get_pending_payout(&self, account_id: AccountId) -> U128 {
         U128(self.pending_payouts.get(&account_id).unwrap_or(0))
     }
 
     /// Withdraw all pending payouts for the caller.
-    /// This implements the pull-payment pattern for settlement distributions.
-    /// Returns a Promise that transfers all pending funds to the caller.
+    /// Implements the pull-payment pattern for settlement distributions.
+    /// 
+    /// # Returns
+    /// Promise that transfers all pending funds to the caller
+    /// 
+    /// # Security
+    /// Requires exactly 1 yoctoNEAR attached for security confirmation.
+    /// Uses checks-effects-interactions pattern (state cleared before transfer).
     #[payable]
     pub fn withdraw_payout(&mut self) -> Promise {
         require!(
@@ -3803,6 +4179,15 @@ impl NearSplitter {
 
     /// Withdraw a specific amount from pending payouts.
     /// Useful if you want to withdraw only part of your pending balance.
+    /// 
+    /// # Arguments
+    /// * `amount` - The amount to withdraw in yoctoNEAR
+    /// 
+    /// # Returns
+    /// Promise that transfers the specified amount to the caller
+    /// 
+    /// # Security
+    /// Requires exactly 1 yoctoNEAR attached for security confirmation.
     #[payable]
     pub fn withdraw_payout_partial(&mut self, amount: U128) -> Promise {
         require!(
@@ -4226,6 +4611,7 @@ mod tests {
                 token: None,
                 ts_ms: timestamp_ms(),
                 tx_kind: "native".to_string(),
+                epoch: 0, // EPOCH-FIX: Test settlement in epoch 0
             };
             contract.record_settlement(settlement);
         }
@@ -4322,6 +4708,7 @@ mod tests {
             token: Some(accounts(2)),
             ts_ms: timestamp_ms(),
             tx_kind: "ft_transfer".to_string(),
+            epoch: 0, // EPOCH-FIX: Test settlement in epoch 0
         };
         contract.record_settlement(settlement);
 
@@ -4348,6 +4735,7 @@ mod tests {
                 token: None,
                 ts_ms: timestamp_ms(),
                 tx_kind: "native".to_string(),
+                epoch: 0, // EPOCH-FIX: Test settlement in epoch 0
             };
             contract.record_settlement(settlement);
         }
@@ -4360,6 +4748,7 @@ mod tests {
             token: None,
             ts_ms: timestamp_ms(),
             tx_kind: "native".to_string(),
+            epoch: 0, // EPOCH-FIX: Test settlement in epoch 0
         };
         contract.record_settlement(settlement);
     }
@@ -6474,6 +6863,7 @@ mod tests {
                 token: None,
                 ts_ms: 1620000000000,
                 tx_kind: "test".to_string(),
+                epoch: 0, // EPOCH-FIX: Test settlement in epoch 0
             };
             let settlement_id = format!("settlement-{}-{}", circle_id, i + 1);
             let index_key = NearSplitter::settlement_index_key(&circle_id, i);
@@ -6591,6 +6981,7 @@ mod tests {
                 token: None,
                 ts_ms: 1620000000000,
                 tx_kind: "test".to_string(),
+                epoch: 0, // EPOCH-FIX: Test settlement in epoch 0
             };
             let settlement_id = format!("settlement-{}-{}", circle_id, i + 1);
             let index_key = NearSplitter::settlement_index_key(&circle_id, i);
@@ -6647,6 +7038,7 @@ mod tests {
                 token: None,
                 ts_ms: 1620000000000,
                 tx_kind: "test".to_string(),
+                epoch: 0, // EPOCH-FIX: Test settlement in epoch 0
             };
             let settlement_id = format!("settlement-{}-{}", circle_id, i + 1);
             let index_key = NearSplitter::settlement_index_key(&circle_id, i);
@@ -6693,6 +7085,7 @@ mod tests {
                 token: None,
                 ts_ms: 1620000000000,
                 tx_kind: "test".to_string(),
+                epoch: 0, // EPOCH-FIX: Test settlement in epoch 0
             };
             let settlement_id = format!("settlement-{}-{}", circle_id, i + 1);
             let index_key = NearSplitter::settlement_index_key(&circle_id, i);
@@ -8174,5 +8567,895 @@ mod tests {
         // (less than 5 NEAR - 1 NEAR storage - safety buffer)
         let _promise = contract.rescue_stuck_near(accounts(2), U128(ONE_NEAR));
         // If we get here without panic, rescue succeeded
+    }
+
+    // =========================================================================
+    // LEDGER EPOCH TESTS
+    // =========================================================================
+
+    /// Test that after autopay settlement completes, compute_balances returns zero for all members
+    /// Then after adding a new expense, balances reflect only that new expense.
+    #[test]
+    fn test_epoch_zero_balances_after_autopay() {
+        let mut contract = setup();
+
+        // Setup: account(0) pays storage and creates circle
+        let mut ctx = context(accounts(0), ONE_NEAR);
+        testing_env!(ctx.build());
+        contract.storage_deposit(None, None);
+
+        ctx = context(accounts(0), 0);
+        testing_env!(ctx.build());
+        contract.create_circle("Epoch Test".to_string(), None, None);
+        contract.add_members("circle-0".to_string(), vec![accounts(1)]);
+
+        // Add expense: accounts(0) paid 100, split 50/50
+        contract.add_expense(
+            "circle-0".to_string(),
+            U128(100),
+            vec![
+                MemberShare { account_id: accounts(0), weight_bps: 5_000 },
+                MemberShare { account_id: accounts(1), weight_bps: 5_000 },
+            ],
+            "Dinner".to_string(),
+        );
+
+        // Check initial balances: account(0) = +50, account(1) = -50
+        let balances_before = contract.compute_balances("circle-0".to_string());
+        let mut map: std::collections::HashMap<AccountId, i128> = std::collections::HashMap::new();
+        for b in balances_before {
+            map.insert(b.account_id, b.net.0);
+        }
+        assert_eq!(map.get(&accounts(0)).copied(), Some(50));
+        assert_eq!(map.get(&accounts(1)).copied(), Some(-50));
+
+        // Verify epoch is 0
+        let circle = contract.circles.get(&"circle-0".to_string()).unwrap();
+        assert_eq!(circle.ledger_epoch, 0);
+
+        // Simulate autopay settlement completion by incrementing epoch manually
+        let mut updated_circle = circle.clone();
+        updated_circle.ledger_epoch = 1;
+        updated_circle.state = CircleState::Settled;
+        contract.circles.insert(&"circle-0".to_string(), &updated_circle);
+
+        // After epoch increment, compute_balances should return zero for all
+        let balances_after = contract.compute_balances("circle-0".to_string());
+        let mut map_after: std::collections::HashMap<AccountId, i128> = std::collections::HashMap::new();
+        for b in balances_after {
+            map_after.insert(b.account_id, b.net.0);
+        }
+        assert_eq!(map_after.get(&accounts(0)).copied(), Some(0));
+        assert_eq!(map_after.get(&accounts(1)).copied(), Some(0));
+
+        // Re-open circle and add a new expense in the new epoch
+        let mut reopened = contract.circles.get(&"circle-0".to_string()).unwrap();
+        reopened.state = CircleState::Open;
+        contract.circles.insert(&"circle-0".to_string(), &reopened);
+
+        // Add new expense in epoch 1
+        contract.add_expense(
+            "circle-0".to_string(),
+            U128(200),
+            vec![
+                MemberShare { account_id: accounts(0), weight_bps: 5_000 },
+                MemberShare { account_id: accounts(1), weight_bps: 5_000 },
+            ],
+            "Epoch 1 expense".to_string(),
+        );
+
+        // Balances should reflect only the new epoch expense: +100, -100
+        let balances_new = contract.compute_balances("circle-0".to_string());
+        let mut map_new: std::collections::HashMap<AccountId, i128> = std::collections::HashMap::new();
+        for b in balances_new {
+            map_new.insert(b.account_id, b.net.0);
+        }
+        assert_eq!(map_new.get(&accounts(0)).copied(), Some(100));
+        assert_eq!(map_new.get(&accounts(1)).copied(), Some(-100));
+    }
+
+    /// Test that suggest_settlements only uses current epoch data
+    #[test]
+    fn test_epoch_suggest_settlements_current_only() {
+        let mut contract = setup();
+
+        // Setup
+        let mut ctx = context(accounts(0), ONE_NEAR);
+        testing_env!(ctx.build());
+        contract.storage_deposit(None, None);
+
+        ctx = context(accounts(0), 0);
+        testing_env!(ctx.build());
+        contract.create_circle("Suggest Test".to_string(), None, None);
+        contract.add_members("circle-0".to_string(), vec![accounts(1)]);
+
+        // Add expense in epoch 0
+        contract.add_expense(
+            "circle-0".to_string(),
+            U128(100),
+            vec![
+                MemberShare { account_id: accounts(0), weight_bps: 5_000 },
+                MemberShare { account_id: accounts(1), weight_bps: 5_000 },
+            ],
+            "Old epoch expense".to_string(),
+        );
+
+        // Verify suggestions exist in epoch 0
+        let suggestions_before = contract.suggest_settlements("circle-0".to_string());
+        assert!(!suggestions_before.is_empty(), "Should have suggestions in epoch 0");
+
+        // Increment epoch (simulating settlement)
+        let mut circle = contract.circles.get(&"circle-0".to_string()).unwrap();
+        circle.ledger_epoch = 1;
+        contract.circles.insert(&"circle-0".to_string(), &circle);
+
+        // After epoch increment, no suggestions (no expenses in epoch 1)
+        let suggestions_after = contract.suggest_settlements("circle-0".to_string());
+        assert!(suggestions_after.is_empty(), "Should have no suggestions after epoch increment");
+    }
+
+    // =========================================================================
+    // TOKEN ALLOWLIST TESTS
+    // =========================================================================
+
+    /// Test that approve_token adds a token to the allowlist
+    #[test]
+    fn test_approve_token() {
+        let mut contract = setup();
+        let token_id: AccountId = "usdc.near".parse().unwrap();
+
+        // Initially, token should not be approved
+        assert!(!contract.is_token_approved(token_id.clone()));
+
+        // Approve the token (as contract owner)
+        let ctx = VMContextBuilder::new()
+            .predecessor_account_id("contract.near".parse().unwrap())
+            .current_account_id("contract.near".parse().unwrap())
+            .build();
+        testing_env!(ctx);
+
+        contract.approve_token(token_id.clone());
+
+        // Now token should be approved
+        assert!(contract.is_token_approved(token_id));
+    }
+
+    /// Test that revoke_token removes a token from the allowlist
+    #[test]
+    fn test_revoke_token() {
+        let mut contract = setup();
+        let token_id: AccountId = "usdc.near".parse().unwrap();
+
+        // Approve the token first
+        let ctx = VMContextBuilder::new()
+            .predecessor_account_id("contract.near".parse().unwrap())
+            .current_account_id("contract.near".parse().unwrap())
+            .build();
+        testing_env!(ctx);
+
+        contract.approve_token(token_id.clone());
+        assert!(contract.is_token_approved(token_id.clone()));
+
+        // Now revoke
+        contract.revoke_token(token_id.clone());
+        assert!(!contract.is_token_approved(token_id));
+    }
+
+    /// Test that only contract owner can approve tokens
+    #[test]
+    #[should_panic(expected = "Only contract owner can approve tokens")]
+    fn test_approve_token_requires_owner() {
+        let mut contract = setup();
+        let token_id: AccountId = "usdc.near".parse().unwrap();
+
+        // Try to approve as non-owner
+        let ctx = context(accounts(0), 0);
+        testing_env!(ctx.build());
+
+        contract.approve_token(token_id);
+    }
+
+    /// Test that only contract owner can revoke tokens
+    #[test]
+    #[should_panic(expected = "Only contract owner can revoke tokens")]
+    fn test_revoke_token_requires_owner() {
+        let mut contract = setup();
+        let token_id: AccountId = "usdc.near".parse().unwrap();
+
+        // Approve first as contract owner
+        let ctx = VMContextBuilder::new()
+            .predecessor_account_id("contract.near".parse().unwrap())
+            .current_account_id("contract.near".parse().unwrap())
+            .build();
+        testing_env!(ctx);
+        contract.approve_token(token_id.clone());
+
+        // Try to revoke as non-owner - should fail
+        let ctx2 = context(accounts(0), 0);
+        testing_env!(ctx2.build());
+        contract.revoke_token(token_id);
+    }
+
+    /// Test that is_token_approved returns false for unknown tokens
+    #[test]
+    fn test_is_token_approved_unknown_token() {
+        let contract = setup();
+        let unknown_token: AccountId = "unknown.near".parse().unwrap();
+        
+        assert!(!contract.is_token_approved(unknown_token));
+    }
+
+    // =========================================================================
+    // CIRCLE LISTING TESTS
+    // =========================================================================
+
+    /// Test list_circles_by_owner returns circles for an owner
+    #[test]
+    fn test_list_circles_by_owner() {
+        let mut contract = setup();
+
+        // Setup: accounts(0) creates two circles
+        let mut ctx = context(accounts(0), ONE_NEAR);
+        testing_env!(ctx.build());
+        contract.storage_deposit(None, None);
+
+        ctx = context(accounts(0), 0);
+        testing_env!(ctx.build());
+        contract.create_circle("Circle A".to_string(), None, None);
+        contract.create_circle("Circle B".to_string(), None, None);
+
+        // List circles by owner
+        let circles = contract.list_circles_by_owner(accounts(0), None, None);
+        assert_eq!(circles.len(), 2);
+        assert_eq!(circles[0].name, "Circle A");
+        assert_eq!(circles[1].name, "Circle B");
+
+        // accounts(1) should have no circles
+        let circles_1 = contract.list_circles_by_owner(accounts(1), None, None);
+        assert!(circles_1.is_empty());
+    }
+
+    /// Test list_circles_by_owner with pagination
+    #[test]
+    fn test_list_circles_by_owner_pagination() {
+        let mut contract = setup();
+
+        // Setup: accounts(0) creates 5 circles
+        let mut ctx = context(accounts(0), ONE_NEAR);
+        testing_env!(ctx.build());
+        contract.storage_deposit(None, None);
+
+        ctx = context(accounts(0), 0);
+        testing_env!(ctx.build());
+        for i in 0..5 {
+            contract.create_circle(format!("Circle {}", i), None, None);
+        }
+
+        // Get first 2 circles
+        let page1 = contract.list_circles_by_owner(accounts(0), Some(0), Some(2));
+        assert_eq!(page1.len(), 2);
+        assert_eq!(page1[0].name, "Circle 0");
+        assert_eq!(page1[1].name, "Circle 1");
+
+        // Get next 2 circles
+        let page2 = contract.list_circles_by_owner(accounts(0), Some(2), Some(2));
+        assert_eq!(page2.len(), 2);
+        assert_eq!(page2[0].name, "Circle 2");
+        assert_eq!(page2[1].name, "Circle 3");
+
+        // Get last page
+        let page3 = contract.list_circles_by_owner(accounts(0), Some(4), Some(2));
+        assert_eq!(page3.len(), 1);
+        assert_eq!(page3[0].name, "Circle 4");
+    }
+
+    /// Test list_circles_by_member returns circles where user is a member
+    #[test]
+    fn test_list_circles_by_member() {
+        let mut contract = setup();
+
+        // Setup: accounts(0) creates circle and adds accounts(1) as member
+        let mut ctx = context(accounts(0), ONE_NEAR);
+        testing_env!(ctx.build());
+        contract.storage_deposit(None, None);
+
+        ctx = context(accounts(0), 0);
+        testing_env!(ctx.build());
+        contract.create_circle("Shared Circle".to_string(), None, None);
+        contract.add_members("circle-0".to_string(), vec![accounts(1)]);
+
+        // accounts(1) deposits storage
+        ctx = context(accounts(1), ONE_NEAR);
+        testing_env!(ctx.build());
+        contract.storage_deposit(None, None);
+
+        // accounts(0) should see their circle as owner
+        ctx = context(accounts(0), 0);
+        testing_env!(ctx.build());
+        let circles_0 = contract.list_circles_by_member(accounts(0), None, None);
+        assert_eq!(circles_0.len(), 1);
+        assert_eq!(circles_0[0].name, "Shared Circle");
+
+        // accounts(1) should see the same circle as member
+        let circles_1 = contract.list_circles_by_member(accounts(1), None, None);
+        assert_eq!(circles_1.len(), 1);
+        assert_eq!(circles_1[0].name, "Shared Circle");
+    }
+
+    /// Test list_circles_by_member with pagination
+    #[test]
+    fn test_list_circles_by_member_pagination() {
+        let mut contract = setup();
+
+        // Setup: accounts(0) and accounts(1) both create circles, all with accounts(2) as member
+        let mut ctx = context(accounts(0), ONE_NEAR);
+        testing_env!(ctx.build());
+        contract.storage_deposit(None, None);
+
+        ctx = context(accounts(0), 0);
+        testing_env!(ctx.build());
+        contract.create_circle("Circle from 0".to_string(), None, None);
+        contract.add_members("circle-0".to_string(), vec![accounts(2)]);
+
+        ctx = context(accounts(1), ONE_NEAR);
+        testing_env!(ctx.build());
+        contract.storage_deposit(None, None);
+
+        ctx = context(accounts(1), 0);
+        testing_env!(ctx.build());
+        contract.create_circle("Circle from 1".to_string(), None, None);
+        contract.add_members("circle-1".to_string(), vec![accounts(2)]);
+
+        ctx = context(accounts(0), 0);
+        testing_env!(ctx.build());
+        contract.create_circle("Another from 0".to_string(), None, None);
+        contract.add_members("circle-2".to_string(), vec![accounts(2)]);
+
+        // accounts(2) should see all 3 circles
+        let all_circles = contract.list_circles_by_member(accounts(2), None, None);
+        assert_eq!(all_circles.len(), 3);
+
+        // Paginate
+        let page1 = contract.list_circles_by_member(accounts(2), Some(0), Some(2));
+        assert_eq!(page1.len(), 2);
+
+        let page2 = contract.list_circles_by_member(accounts(2), Some(2), Some(2));
+        assert_eq!(page2.len(), 1);
+    }
+
+    // =========================================================================
+    // GET_EXPENSE_CLAIMS TESTS
+    // =========================================================================
+
+    /// Test that get_expense_claims returns claims only for the specified expense
+    #[test]
+    fn test_get_expense_claims_returns_only_specified_expense() {
+        let mut contract = setup();
+
+        // Setup: accounts(0) creates circle with accounts(1) and accounts(2)
+        let mut ctx = context(accounts(0), ONE_NEAR);
+        testing_env!(ctx.build());
+        contract.storage_deposit(None, None);
+
+        ctx = context(accounts(1), ONE_NEAR);
+        testing_env!(ctx.build());
+        contract.storage_deposit(None, None);
+
+        ctx = context(accounts(2), ONE_NEAR);
+        testing_env!(ctx.build());
+        contract.storage_deposit(None, None);
+
+        ctx = context(accounts(0), 0);
+        testing_env!(ctx.build());
+        contract.create_circle("Test Circle".to_string(), None, None);
+        contract.add_members("circle-0".to_string(), vec![accounts(1), accounts(2)]);
+
+        // Create two expenses
+        contract.add_expense(
+            "circle-0".to_string(),
+            U128(100),
+            vec![
+                MemberShare { account_id: accounts(0), weight_bps: 5_000 },
+                MemberShare { account_id: accounts(1), weight_bps: 5_000 },
+            ],
+            "Expense A".to_string(),
+        );
+
+        contract.add_expense(
+            "circle-0".to_string(),
+            U128(200),
+            vec![
+                MemberShare { account_id: accounts(0), weight_bps: 5_000 },
+                MemberShare { account_id: accounts(2), weight_bps: 5_000 },
+            ],
+            "Expense B".to_string(),
+        );
+
+        // accounts(1) files a claim on expense A
+        ctx = context(accounts(1), 0);
+        testing_env!(ctx.build());
+        contract.file_claim(
+            "circle-0".to_string(),
+            "expense-circle-0-1".to_string(),
+            "wrong_amount".to_string(),
+            Some(U128(80)),
+            None,
+        );
+
+        // accounts(2) files a claim on expense B
+        ctx = context(accounts(2), 0);
+        testing_env!(ctx.build());
+        contract.file_claim(
+            "circle-0".to_string(),
+            "expense-circle-0-2".to_string(),
+            "wrong_amount".to_string(),
+            Some(U128(150)),
+            None,
+        );
+
+        // get_expense_claims for expense A should return only the claim for A
+        let claims_a = contract.get_expense_claims("circle-0".to_string(), "expense-circle-0-1".to_string());
+        assert_eq!(claims_a.len(), 1);
+        assert_eq!(claims_a[0].expense_id, "expense-circle-0-1");
+        assert_eq!(claims_a[0].claimant, accounts(1));
+        assert_eq!(claims_a[0].proposed_amount, Some(U128(80)));
+
+        // get_expense_claims for expense B should return only the claim for B
+        let claims_b = contract.get_expense_claims("circle-0".to_string(), "expense-circle-0-2".to_string());
+        assert_eq!(claims_b.len(), 1);
+        assert_eq!(claims_b[0].expense_id, "expense-circle-0-2");
+        assert_eq!(claims_b[0].claimant, accounts(2));
+        assert_eq!(claims_b[0].proposed_amount, Some(U128(150)));
+    }
+
+    /// Test that get_expense_claims returns empty for expense with no claims
+    #[test]
+    fn test_get_expense_claims_empty_for_no_claims() {
+        let mut contract = setup();
+
+        // Setup
+        let mut ctx = context(accounts(0), ONE_NEAR);
+        testing_env!(ctx.build());
+        contract.storage_deposit(None, None);
+
+        ctx = context(accounts(0), 0);
+        testing_env!(ctx.build());
+        contract.create_circle("Test Circle".to_string(), None, None);
+        contract.add_members("circle-0".to_string(), vec![accounts(1)]);
+
+        // Create expense with no claims
+        contract.add_expense(
+            "circle-0".to_string(),
+            U128(100),
+            vec![
+                MemberShare { account_id: accounts(0), weight_bps: 5_000 },
+                MemberShare { account_id: accounts(1), weight_bps: 5_000 },
+            ],
+            "No claims expense".to_string(),
+        );
+
+        // get_expense_claims should return empty vec
+        let claims = contract.get_expense_claims("circle-0".to_string(), "expense-circle-0-1".to_string());
+        assert!(claims.is_empty());
+    }
+
+    /// Test that get_expense_claims returns multiple claims for the same expense
+    #[test]
+    fn test_get_expense_claims_multiple_claims_same_expense() {
+        let mut contract = setup();
+
+        // Setup: accounts(0) creates circle with accounts(1) and accounts(2)
+        let mut ctx = context(accounts(0), ONE_NEAR);
+        testing_env!(ctx.build());
+        contract.storage_deposit(None, None);
+
+        ctx = context(accounts(1), ONE_NEAR);
+        testing_env!(ctx.build());
+        contract.storage_deposit(None, None);
+
+        ctx = context(accounts(2), ONE_NEAR);
+        testing_env!(ctx.build());
+        contract.storage_deposit(None, None);
+
+        ctx = context(accounts(0), 0);
+        testing_env!(ctx.build());
+        contract.create_circle("Test Circle".to_string(), None, None);
+        contract.add_members("circle-0".to_string(), vec![accounts(1), accounts(2)]);
+
+        // Create expense with both accounts(1) and accounts(2) as participants
+        contract.add_expense(
+            "circle-0".to_string(),
+            U128(300),
+            vec![
+                MemberShare { account_id: accounts(0), weight_bps: 3_333 },
+                MemberShare { account_id: accounts(1), weight_bps: 3_333 },
+                MemberShare { account_id: accounts(2), weight_bps: 3_334 },
+            ],
+            "Multi-participant expense".to_string(),
+        );
+
+        // accounts(1) files a claim
+        ctx = context(accounts(1), 0);
+        testing_env!(ctx.build());
+        contract.file_claim(
+            "circle-0".to_string(),
+            "expense-circle-0-1".to_string(),
+            "wrong_amount".to_string(),
+            Some(U128(250)),
+            None,
+        );
+
+        // accounts(2) files a claim
+        ctx = context(accounts(2), 0);
+        testing_env!(ctx.build());
+        contract.file_claim(
+            "circle-0".to_string(),
+            "expense-circle-0-1".to_string(),
+            "wrong_amount".to_string(),
+            Some(U128(275)),
+            None,
+        );
+
+        // get_expense_claims should return both claims
+        let claims = contract.get_expense_claims("circle-0".to_string(), "expense-circle-0-1".to_string());
+        assert_eq!(claims.len(), 2);
+        
+        // Verify both claimants are present
+        let claimants: Vec<AccountId> = claims.iter().map(|c| c.claimant.clone()).collect();
+        assert!(claimants.contains(&accounts(1)));
+        assert!(claimants.contains(&accounts(2)));
+    }
+
+    // =========================================================================
+    // IS_FULLY_CONFIRMED AND IS_MEMBERSHIP_OPEN TESTS
+    // =========================================================================
+
+    /// Test is_fully_confirmed returns false when only one member has confirmed
+    #[test]
+    fn test_is_fully_confirmed_partial() {
+        let mut contract = setup();
+
+        // Setup: 2-member circle
+        let mut ctx = context(accounts(0), ONE_NEAR);
+        testing_env!(ctx.build());
+        contract.storage_deposit(None, None);
+
+        ctx = context(accounts(1), ONE_NEAR);
+        testing_env!(ctx.build());
+        contract.storage_deposit(None, None);
+
+        ctx = context(accounts(0), 0);
+        testing_env!(ctx.build());
+        contract.create_circle("Confirm Test".to_string(), None, None);
+        contract.add_members("circle-0".to_string(), vec![accounts(1)]);
+
+        // Initially not confirmed
+        assert!(!contract.is_fully_confirmed("circle-0".to_string()));
+
+        // Only accounts(0) confirms (creditor, no deposit needed)
+        ctx = context(accounts(0), 0);
+        testing_env!(ctx.build());
+        contract.confirm_ledger("circle-0".to_string());
+
+        // Should still be false since only 1 of 2 members confirmed
+        assert!(!contract.is_fully_confirmed("circle-0".to_string()));
+    }
+
+    /// Test is_fully_confirmed returns true when all members have confirmed
+    #[test]
+    fn test_is_fully_confirmed_all() {
+        let mut contract = setup();
+
+        // Setup: 2-member circle
+        let mut ctx = context(accounts(0), ONE_NEAR);
+        testing_env!(ctx.build());
+        contract.storage_deposit(None, None);
+
+        ctx = context(accounts(1), ONE_NEAR);
+        testing_env!(ctx.build());
+        contract.storage_deposit(None, None);
+
+        ctx = context(accounts(0), 0);
+        testing_env!(ctx.build());
+        contract.create_circle("Confirm Test".to_string(), None, None);
+        contract.add_members("circle-0".to_string(), vec![accounts(1)]);
+
+        // Initially not confirmed
+        assert!(!contract.is_fully_confirmed("circle-0".to_string()));
+
+        // accounts(0) confirms
+        ctx = context(accounts(0), 0);
+        testing_env!(ctx.build());
+        contract.confirm_ledger("circle-0".to_string());
+
+        // accounts(1) confirms
+        ctx = context(accounts(1), 0);
+        testing_env!(ctx.build());
+        contract.confirm_ledger("circle-0".to_string());
+
+        // Now should be true - all members confirmed
+        assert!(contract.is_fully_confirmed("circle-0".to_string()));
+    }
+
+    /// Test is_membership_open can be toggled and reflects correct state
+    #[test]
+    fn test_is_membership_open_toggle() {
+        let mut contract = setup();
+
+        // Setup
+        let mut ctx = context(accounts(0), ONE_NEAR);
+        testing_env!(ctx.build());
+        contract.storage_deposit(None, None);
+
+        ctx = context(accounts(0), 0);
+        testing_env!(ctx.build());
+        contract.create_circle("Membership Test".to_string(), None, None);
+
+        // Default should be true (membership open on creation)
+        assert!(contract.is_membership_open("circle-0".to_string()));
+
+        // Close membership
+        ctx = context(accounts(0), ONE_YOCTO);
+        testing_env!(ctx.build());
+        contract.set_membership_open("circle-0".to_string(), false);
+
+        assert!(!contract.is_membership_open("circle-0".to_string()));
+
+        // Re-open membership
+        ctx = context(accounts(0), ONE_YOCTO);
+        testing_env!(ctx.build());
+        contract.set_membership_open("circle-0".to_string(), true);
+
+        assert!(contract.is_membership_open("circle-0".to_string()));
+    }
+
+    // =========================================================================
+    // AUTOPAY AND ESCROW TESTS
+    // =========================================================================
+
+    /// Test get_required_autopay_deposit returns debt amount for debtor
+    #[test]
+    fn test_get_required_autopay_deposit_with_debt() {
+        let mut contract = setup();
+
+        // Setup: accounts(0) pays, accounts(1) owes
+        let mut ctx = context(accounts(0), ONE_NEAR);
+        testing_env!(ctx.build());
+        contract.storage_deposit(None, None);
+
+        ctx = context(accounts(1), ONE_NEAR);
+        testing_env!(ctx.build());
+        contract.storage_deposit(None, None);
+
+        ctx = context(accounts(0), 0);
+        testing_env!(ctx.build());
+        contract.create_circle("Debt Test".to_string(), None, None);
+        contract.add_members("circle-0".to_string(), vec![accounts(1)]);
+
+        // accounts(0) paid 100, split 50/50 => accounts(1) owes 50
+        contract.add_expense(
+            "circle-0".to_string(),
+            U128(100),
+            vec![
+                MemberShare { account_id: accounts(0), weight_bps: 5_000 },
+                MemberShare { account_id: accounts(1), weight_bps: 5_000 },
+            ],
+            "Test expense".to_string(),
+        );
+
+        // accounts(0) is creditor - no deposit needed
+        let deposit_0 = contract.get_required_autopay_deposit("circle-0".to_string(), accounts(0));
+        assert_eq!(deposit_0.0, 0);
+
+        // accounts(1) is debtor - needs to deposit 50
+        let deposit_1 = contract.get_required_autopay_deposit("circle-0".to_string(), accounts(1));
+        assert_eq!(deposit_1.0, 50);
+    }
+
+    /// Test get_autopay and get_escrow_deposit after enabling autopay
+    #[test]
+    fn test_get_autopay_and_escrow_after_enable() {
+        let mut contract = setup();
+
+        // Setup: accounts(0) pays, accounts(1) owes
+        let mut ctx = context(accounts(0), ONE_NEAR);
+        testing_env!(ctx.build());
+        contract.storage_deposit(None, None);
+
+        ctx = context(accounts(1), ONE_NEAR);
+        testing_env!(ctx.build());
+        contract.storage_deposit(None, None);
+
+        ctx = context(accounts(0), 0);
+        testing_env!(ctx.build());
+        contract.create_circle("Autopay Test".to_string(), None, None);
+        contract.add_members("circle-0".to_string(), vec![accounts(1)]);
+
+        // accounts(0) paid 100, split 50/50 => accounts(1) owes 50
+        contract.add_expense(
+            "circle-0".to_string(),
+            U128(100),
+            vec![
+                MemberShare { account_id: accounts(0), weight_bps: 5_000 },
+                MemberShare { account_id: accounts(1), weight_bps: 5_000 },
+            ],
+            "Test expense".to_string(),
+        );
+
+        // Initially autopay is false
+        assert!(!contract.get_autopay("circle-0".to_string(), accounts(0)));
+        assert!(!contract.get_autopay("circle-0".to_string(), accounts(1)));
+
+        // Initially escrow is 0
+        assert_eq!(contract.get_escrow_deposit("circle-0".to_string(), accounts(0)).0, 0);
+        assert_eq!(contract.get_escrow_deposit("circle-0".to_string(), accounts(1)).0, 0);
+
+        // accounts(0) enables autopay (creditor, no deposit needed but can attach)
+        ctx = context(accounts(0), 0);
+        testing_env!(ctx.build());
+        contract.set_autopay("circle-0".to_string(), true);
+
+        assert!(contract.get_autopay("circle-0".to_string(), accounts(0)));
+
+        // accounts(1) enables autopay with required deposit (50)
+        ctx = context(accounts(1), 50);
+        testing_env!(ctx.build());
+        contract.set_autopay("circle-0".to_string(), true);
+
+        assert!(contract.get_autopay("circle-0".to_string(), accounts(1)));
+        assert_eq!(contract.get_escrow_deposit("circle-0".to_string(), accounts(1)).0, 50);
+    }
+
+    /// Test all_members_autopay only true when everyone has enabled
+    #[test]
+    fn test_all_members_autopay() {
+        let mut contract = setup();
+
+        // Setup: 2-member circle
+        let mut ctx = context(accounts(0), ONE_NEAR);
+        testing_env!(ctx.build());
+        contract.storage_deposit(None, None);
+
+        ctx = context(accounts(1), ONE_NEAR);
+        testing_env!(ctx.build());
+        contract.storage_deposit(None, None);
+
+        ctx = context(accounts(0), 0);
+        testing_env!(ctx.build());
+        contract.create_circle("All Autopay Test".to_string(), None, None);
+        contract.add_members("circle-0".to_string(), vec![accounts(1)]);
+
+        // Initially false
+        assert!(!contract.all_members_autopay("circle-0".to_string()));
+
+        // Only accounts(0) enables autopay
+        ctx = context(accounts(0), 0);
+        testing_env!(ctx.build());
+        contract.set_autopay("circle-0".to_string(), true);
+
+        // Still false - only 1 of 2 members enabled
+        assert!(!contract.all_members_autopay("circle-0".to_string()));
+
+        // accounts(1) also enables autopay
+        ctx = context(accounts(1), 0);
+        testing_env!(ctx.build());
+        contract.set_autopay("circle-0".to_string(), true);
+
+        // Now true - all members have enabled
+        assert!(contract.all_members_autopay("circle-0".to_string()));
+    }
+
+    // =========================================================================
+    // RESCUE_STUCK_FT TESTS
+    // =========================================================================
+
+    /// Test rescue_stuck_ft with amount > 0 returns a Promise (no panic)
+    #[test]
+    fn test_rescue_stuck_ft_positive_amount() {
+        let contract = setup();
+        let token_id: AccountId = "usdc.near".parse().unwrap();
+        let receiver: AccountId = "rescue-receiver.near".parse().unwrap();
+
+        // Set context with predecessor = current_account_id (contract calling itself)
+        let ctx = VMContextBuilder::new()
+            .predecessor_account_id("contract.near".parse().unwrap())
+            .current_account_id("contract.near".parse().unwrap())
+            .build();
+        testing_env!(ctx);
+
+        // This should NOT panic - returns a Promise
+        let _promise = contract.rescue_stuck_ft(token_id, receiver, U128(1000));
+        // If we reach here without panic, the test passes
+    }
+
+    /// Test rescue_stuck_ft with amount == 0 panics
+    #[test]
+    #[should_panic(expected = "Amount must be positive")]
+    fn test_rescue_stuck_ft_zero_amount_panics() {
+        let contract = setup();
+        let token_id: AccountId = "usdc.near".parse().unwrap();
+        let receiver: AccountId = "rescue-receiver.near".parse().unwrap();
+
+        // Set context with predecessor = current_account_id (contract calling itself)
+        let ctx = VMContextBuilder::new()
+            .predecessor_account_id("contract.near".parse().unwrap())
+            .current_account_id("contract.near".parse().unwrap())
+            .build();
+        testing_env!(ctx);
+
+        // This should panic with "Amount must be positive"
+        let _promise = contract.rescue_stuck_ft(token_id, receiver, U128(0));
+    }
+
+    // =========================================================================
+    // OWNER-FUNDED STORAGE MODEL TESTS
+    // =========================================================================
+
+    /// Test that when a non-owner adds an expense, the owner's storage balance decreases,
+    /// not the payer's (non-owner's) storage balance.
+    #[test]
+    fn test_add_expense_charges_owner_storage() {
+        let mut contract = setup();
+
+        // Setup: accounts(0) is owner, accounts(1) is a member
+        let mut ctx = context(accounts(0), ONE_NEAR);
+        testing_env!(ctx.build());
+        contract.storage_deposit(None, None);
+
+        ctx = context(accounts(1), ONE_NEAR);
+        testing_env!(ctx.build());
+        contract.storage_deposit(None, None);
+
+        // accounts(0) creates circle (becomes owner)
+        ctx = context(accounts(0), 0);
+        testing_env!(ctx.build());
+        contract.create_circle("Storage Test".to_string(), None, None);
+        contract.add_members("circle-0".to_string(), vec![accounts(1)]);
+
+        // Get initial storage balances
+        let owner_balance_before = contract.storage_balance_of(accounts(0))
+            .map(|b| b.total.as_yoctonear())
+            .unwrap_or(0);
+        let member_balance_before = contract.storage_balance_of(accounts(1))
+            .map(|b| b.total.as_yoctonear())
+            .unwrap_or(0);
+
+        // accounts(1) (non-owner) adds an expense
+        ctx = context(accounts(1), 0);
+        testing_env!(ctx.build());
+        contract.add_expense(
+            "circle-0".to_string(),
+            U128(100),
+            vec![
+                MemberShare { account_id: accounts(0), weight_bps: 5_000 },
+                MemberShare { account_id: accounts(1), weight_bps: 5_000 },
+            ],
+            "Non-owner expense".to_string(),
+        );
+
+        // Get storage balances after
+        let owner_balance_after = contract.storage_balance_of(accounts(0))
+            .map(|b| b.total.as_yoctonear())
+            .unwrap_or(0);
+        let member_balance_after = contract.storage_balance_of(accounts(1))
+            .map(|b| b.total.as_yoctonear())
+            .unwrap_or(0);
+
+        // Owner's storage balance should decrease (charged for expense storage)
+        assert!(
+            owner_balance_after < owner_balance_before,
+            "Owner's storage balance should decrease: before={}, after={}",
+            owner_balance_before,
+            owner_balance_after
+        );
+
+        // Non-owner (payer)'s storage balance should remain unchanged
+        assert_eq!(
+            member_balance_after,
+            member_balance_before,
+            "Non-owner's storage balance should not change: before={}, after={}",
+            member_balance_before,
+            member_balance_after
+        );
     }
 }
