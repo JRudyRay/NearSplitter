@@ -44,8 +44,10 @@ jobs:
       - name: Pin compatible dependencies
         working-directory: contracts/near_splitter
         run: |
-          # Pin home crate to version compatible with stable Rust
+          # Pin crates to versions compatible with stable Rust
           cargo update home --precise 0.5.9 || true
+          cargo update time --precise 0.3.36 || true
+          cargo update time-core --precise 0.1.2 || true
 
       - name: Build WASM (release)
         working-directory: contracts/near_splitter

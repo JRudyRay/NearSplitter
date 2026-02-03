@@ -24,6 +24,12 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y binaryen
 
+      - name: Pin compatible dependencies
+        working-directory: contracts/near_splitter
+        run: |
+          cargo update time --precise 0.3.36 || true
+          cargo update time-core --precise 0.1.2 || true
+
       - name: Build release
         working-directory: contracts/near_splitter
         run: cargo build --target wasm32-unknown-unknown --release
