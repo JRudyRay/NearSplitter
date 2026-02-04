@@ -32,10 +32,13 @@ jobs:
       - name: Pin compatible dependencies
         working-directory: contracts/near_splitter
         run: |
-          # Pin crates to versions compatible with stable Rust
+          # Clear lock file to ensure fresh dependency resolution
+          rm -f Cargo.lock
+          # Pin crates to versions compatible with stable Rust and wasm32
           cargo update home --precise 0.5.9 || true
           cargo update time --precise 0.3.36 || true
           cargo update time-core --precise 0.1.2 || true
+          cargo update getrandom --precise 0.2.15 || true
 
       - name: Build release
         working-directory: contracts/near_splitter
