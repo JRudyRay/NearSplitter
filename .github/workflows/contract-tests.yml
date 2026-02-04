@@ -48,8 +48,6 @@ jobs:
           cargo update home --precise 0.5.9 || true
           cargo update time --precise 0.3.36 || true
           cargo update time-core --precise 0.1.2 || true
-          # Pin getrandom to version compatible with wasm32-unknown-unknown
-          cargo update getrandom --precise 0.2.15 || true
 
       - name: Build WASM (release)
         working-directory: contracts/near_splitter
