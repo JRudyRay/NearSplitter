@@ -51,15 +51,19 @@ jobs:
           cargo update home --precise 0.5.9 || true
           cargo update time --precise 0.3.36 || true
           cargo update time-core --precise 0.1.2 || true
-          cargo update getrandom --precise 0.2.15 || true
+          # Pin both getrandom versions that may be present
+          cargo update getrandom@0.2 --precise 0.2.15 || true
+          cargo update getrandom@0.3 --precise 0.3.1 || true
           
           cd ../ft_mock
           cargo generate-lockfile
-          cargo update getrandom --precise 0.2.15 || true
+          cargo update getrandom@0.2 --precise 0.2.15 || true
+          cargo update getrandom@0.3 --precise 0.3.1 || true
           
           cd ../integration-tests
           cargo generate-lockfile
-          cargo update getrandom --precise 0.2.15 || true
+          cargo update getrandom@0.2 --precise 0.2.15 || true
+          cargo update getrandom@0.3 --precise 0.3.1 || true
 
       - name: Build WASM (release)
         working-directory: contracts/near_splitter
