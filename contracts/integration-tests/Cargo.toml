@@ -4,7 +4,9 @@ version = "0.1.0"
 edition = "2021"
 publish = false
 
-[dependencies]
+# Integration tests only run on native targets, never on wasm32
+# This prevents tokio/mio from being compiled for wasm32-unknown-unknown
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 # Use version compatible with near-sdk 5.5.0
 # Note: default-features=false avoids pulling in problematic wasm-opt/cxx dependencies
 near-workspaces = { version = "0.14", default-features = false }
