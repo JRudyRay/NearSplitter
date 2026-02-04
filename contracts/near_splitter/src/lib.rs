@@ -4263,6 +4263,29 @@ mod tests {
         builder
     }
 
+    /// Test helper: Register members and have them join a circle.
+    /// This simulates what would happen in real usage where each member
+    /// registers for storage and then calls join_circle.
+    /// After joining all members, restores context to accounts(0) for convenience.
+    fn add_members_helper(contract: &mut NearSplitter, circle_id: &str, members: Vec<AccountId>) {
+        for member in members {
+            // Register the member for storage (if not already registered)
+            if contract.storage_balance_of(member.clone()).is_none() {
+                let ctx = context(member.clone(), ONE_NEAR);
+                testing_env!(ctx.build());
+                contract.storage_deposit(None, None);
+            }
+            
+            // Have them join the circle
+            let ctx = context(member, 0);
+            testing_env!(ctx.build());
+            contract.join_circle(circle_id.to_string(), None);
+        }
+        // Restore context to accounts(0) which is typically the test owner
+        let ctx = context(accounts(0), 0);
+        testing_env!(ctx.build());
+    }
+
     #[test]
     fn test_storage_deposit_and_membership() {
         let mut contract = setup();
@@ -5619,7 +5642,7 @@ mod tests {
             testing_env!(ctx.build());
             contract.add_expense(
                 "circle-0".to_string(),
-                U128(10 + i),
+                U128(10 + i as u128),
                 vec![
                     MemberShare { account_id: accounts(0), weight_bps: 5_000 },
                     MemberShare { account_id: accounts(1), weight_bps: 5_000 },
@@ -8587,7 +8610,7 @@ mod tests {
         ctx = context(accounts(0), 0);
         testing_env!(ctx.build());
         contract.create_circle("Epoch Test".to_string(), None, None);
-        contract.add_members("circle-0".to_string(), vec![accounts(1)]);
+        add_members_helper(&mut contract, "circle-0", vec![accounts(1)]);
 
         // Add expense: accounts(0) paid 100, split 50/50
         contract.add_expense(
@@ -8667,7 +8690,7 @@ mod tests {
         ctx = context(accounts(0), 0);
         testing_env!(ctx.build());
         contract.create_circle("Suggest Test".to_string(), None, None);
-        contract.add_members("circle-0".to_string(), vec![accounts(1)]);
+        add_members_helper(&mut contract, "circle-0", vec![accounts(1)]);
 
         // Add expense in epoch 0
         contract.add_expense(
@@ -8862,7 +8885,7 @@ mod tests {
         ctx = context(accounts(0), 0);
         testing_env!(ctx.build());
         contract.create_circle("Shared Circle".to_string(), None, None);
-        contract.add_members("circle-0".to_string(), vec![accounts(1)]);
+        add_members_helper(&mut contract, "circle-0", vec![accounts(1)]);
 
         // accounts(1) deposits storage
         ctx = context(accounts(1), ONE_NEAR);
@@ -8895,7 +8918,7 @@ mod tests {
         ctx = context(accounts(0), 0);
         testing_env!(ctx.build());
         contract.create_circle("Circle from 0".to_string(), None, None);
-        contract.add_members("circle-0".to_string(), vec![accounts(2)]);
+        add_members_helper(&mut contract, "circle-0", vec![accounts(2)]);
 
         ctx = context(accounts(1), ONE_NEAR);
         testing_env!(ctx.build());
@@ -8904,12 +8927,12 @@ mod tests {
         ctx = context(accounts(1), 0);
         testing_env!(ctx.build());
         contract.create_circle("Circle from 1".to_string(), None, None);
-        contract.add_members("circle-1".to_string(), vec![accounts(2)]);
+        add_members_helper(&mut contract, "circle-1", vec![accounts(2)]);
 
         ctx = context(accounts(0), 0);
         testing_env!(ctx.build());
         contract.create_circle("Another from 0".to_string(), None, None);
-        contract.add_members("circle-2".to_string(), vec![accounts(2)]);
+        add_members_helper(&mut contract, "circle-2", vec![accounts(2)]);
 
         // accounts(2) should see all 3 circles
         let all_circles = contract.list_circles_by_member(accounts(2), None, None);
@@ -8948,7 +8971,7 @@ mod tests {
         ctx = context(accounts(0), 0);
         testing_env!(ctx.build());
         contract.create_circle("Test Circle".to_string(), None, None);
-        contract.add_members("circle-0".to_string(), vec![accounts(1), accounts(2)]);
+        add_members_helper(&mut contract, "circle-0", vec![accounts(1), accounts(2)]);
 
         // Create two expenses
         contract.add_expense(
@@ -9021,7 +9044,7 @@ mod tests {
         ctx = context(accounts(0), 0);
         testing_env!(ctx.build());
         contract.create_circle("Test Circle".to_string(), None, None);
-        contract.add_members("circle-0".to_string(), vec![accounts(1)]);
+        add_members_helper(&mut contract, "circle-0", vec![accounts(1)]);
 
         // Create expense with no claims
         contract.add_expense(
@@ -9060,7 +9083,7 @@ mod tests {
         ctx = context(accounts(0), 0);
         testing_env!(ctx.build());
         contract.create_circle("Test Circle".to_string(), None, None);
-        contract.add_members("circle-0".to_string(), vec![accounts(1), accounts(2)]);
+        add_members_helper(&mut contract, "circle-0", vec![accounts(1), accounts(2)]);
 
         // Create expense with both accounts(1) and accounts(2) as participants
         contract.add_expense(
@@ -9127,7 +9150,7 @@ mod tests {
         ctx = context(accounts(0), 0);
         testing_env!(ctx.build());
         contract.create_circle("Confirm Test".to_string(), None, None);
-        contract.add_members("circle-0".to_string(), vec![accounts(1)]);
+        add_members_helper(&mut contract, "circle-0", vec![accounts(1)]);
 
         // Initially not confirmed
         assert!(!contract.is_fully_confirmed("circle-0".to_string()));
@@ -9158,7 +9181,7 @@ mod tests {
         ctx = context(accounts(0), 0);
         testing_env!(ctx.build());
         contract.create_circle("Confirm Test".to_string(), None, None);
-        contract.add_members("circle-0".to_string(), vec![accounts(1)]);
+        add_members_helper(&mut contract, "circle-0", vec![accounts(1)]);
 
         // Initially not confirmed
         assert!(!contract.is_fully_confirmed("circle-0".to_string()));
@@ -9230,7 +9253,7 @@ mod tests {
         ctx = context(accounts(0), 0);
         testing_env!(ctx.build());
         contract.create_circle("Debt Test".to_string(), None, None);
-        contract.add_members("circle-0".to_string(), vec![accounts(1)]);
+        add_members_helper(&mut contract, "circle-0", vec![accounts(1)]);
 
         // accounts(0) paid 100, split 50/50 => accounts(1) owes 50
         contract.add_expense(
@@ -9269,7 +9292,7 @@ mod tests {
         ctx = context(accounts(0), 0);
         testing_env!(ctx.build());
         contract.create_circle("Autopay Test".to_string(), None, None);
-        contract.add_members("circle-0".to_string(), vec![accounts(1)]);
+        add_members_helper(&mut contract, "circle-0", vec![accounts(1)]);
 
         // accounts(0) paid 100, split 50/50 => accounts(1) owes 50
         contract.add_expense(
@@ -9323,7 +9346,7 @@ mod tests {
         ctx = context(accounts(0), 0);
         testing_env!(ctx.build());
         contract.create_circle("All Autopay Test".to_string(), None, None);
-        contract.add_members("circle-0".to_string(), vec![accounts(1)]);
+        add_members_helper(&mut contract, "circle-0", vec![accounts(1)]);
 
         // Initially false
         assert!(!contract.all_members_autopay("circle-0".to_string()));
@@ -9410,7 +9433,7 @@ mod tests {
         ctx = context(accounts(0), 0);
         testing_env!(ctx.build());
         contract.create_circle("Storage Test".to_string(), None, None);
-        contract.add_members("circle-0".to_string(), vec![accounts(1)]);
+        add_members_helper(&mut contract, "circle-0", vec![accounts(1)]);
 
         // Get initial storage balances
         let owner_balance_before = contract.storage_balance_of(accounts(0))
