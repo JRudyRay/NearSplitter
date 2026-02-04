@@ -37,19 +37,28 @@ jobs:
             contracts/near_splitter
             contracts/ft_mock
             contracts/integration-tests
+          # Don't cache to avoid stale dependency issues
+          cache-on-failure: false
 
       - name: Install binaryen (wasm-opt)
         run: sudo apt-get update && sudo apt-get install -y binaryen
 
       - name: Pin compatible dependencies
-        working-directory: contracts/near_splitter
         run: |
-          # Clear lock files to ensure fresh dependency resolution
-          rm -f Cargo.lock ../ft_mock/Cargo.lock ../integration-tests/Cargo.lock
-          # Pin crates to versions compatible with stable Rust and wasm32
+          # Generate lock files first, then pin problematic crates
+          cd contracts/near_splitter
+          cargo generate-lockfile
           cargo update home --precise 0.5.9 || true
           cargo update time --precise 0.3.36 || true
           cargo update time-core --precise 0.1.2 || true
+          cargo update getrandom --precise 0.2.15 || true
+          
+          cd ../ft_mock
+          cargo generate-lockfile
+          cargo update getrandom --precise 0.2.15 || true
+          
+          cd ../integration-tests
+          cargo generate-lockfile
           cargo update getrandom --precise 0.2.15 || true
 
       - name: Build WASM (release)

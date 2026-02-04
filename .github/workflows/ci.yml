@@ -23,6 +23,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: contracts/near_splitter
+          cache-on-failure: false
 
       - name: Install wasm-opt (Binaryen)
         run: |
@@ -32,9 +33,8 @@ jobs:
       - name: Pin compatible dependencies
         working-directory: contracts/near_splitter
         run: |
-          # Clear lock file to ensure fresh dependency resolution
-          rm -f Cargo.lock
-          # Pin crates to versions compatible with stable Rust and wasm32
+          # Generate lock file first, then pin problematic crates
+          cargo generate-lockfile
           cargo update home --precise 0.5.9 || true
           cargo update time --precise 0.3.36 || true
           cargo update time-core --precise 0.1.2 || true

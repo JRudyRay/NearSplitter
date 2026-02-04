@@ -6,7 +6,8 @@ publish = false
 
 [dependencies]
 # Use version compatible with near-sdk 5.5.0
-near-workspaces = { version = "0.14", default-features = false }
+# Note: default-features=false avoids pulling in problematic wasm-opt/cxx dependencies
+near-workspaces = { version = "0.14", default-features = false, features = ["sandbox"] }
 tokio = { version = "1", features = ["full"] }
 serde_json = "1"
 anyhow = "1"
