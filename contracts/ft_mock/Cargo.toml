@@ -14,6 +14,10 @@ borsh = "1.5"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
+# For wasm32 builds, getrandom needs "custom" feature so NEAR SDK can provide randomness
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+getrandom = { version = "0.2", features = ["custom"] }
+
 [profile.release]
 codegen-units = 1
 opt-level = "z"
