@@ -4263,6 +4263,8 @@ fn paginate_vec<T: Clone>(items: &[T], from: u64, limit: u64) -> Vec<T> {
 // Exclude wasm32 since test_utils is gated on not(target_arch = "wasm32")
 // Also exclude Windows since some NEAR testing infrastructure doesn't work there
 #[cfg(all(test, not(target_arch = "wasm32"), not(windows)))]
+#[allow(unused_mut)]       // Some tests have `let mut ctx` that don't later reassign ctx
+#[allow(unused_must_use)]  // Some tests call methods returning Promise without using it
 mod tests {
     use super::*;
     use near_sdk::test_utils::{accounts, VMContextBuilder};
@@ -4483,11 +4485,12 @@ mod tests {
         testing_env!(ctx.build());
         contract.storage_deposit(None, None);
 
-        ctx = context(accounts(0), ONE_NEAR);
+        // Use minimal deposit (0) for create_circle and join_circle so no excess credit accumulates
+        ctx = context(accounts(0), 0);
         testing_env!(ctx.build());
         contract.create_circle("Trip".to_string(), None, None);
 
-        ctx = context(accounts(1), ONE_NEAR);
+        ctx = context(accounts(1), 0);
         testing_env!(ctx.build());
         contract.join_circle("circle-0".to_string(), None);
 
@@ -4505,7 +4508,7 @@ mod tests {
     }
 
     #[test]
-    fn test_add_expense_refunds_excess_deposit() {
+    fn test_add_expense_charges_owner_storage() {
         let mut contract = setup();
 
         let mut ctx = context(accounts(0), 0);
@@ -4528,7 +4531,10 @@ mod tests {
         testing_env!(ctx.build());
         contract.join_circle("circle-0".to_string(), None);
 
-        ctx = context(accounts(0), ONE_NEAR);
+        let stored_before = contract.storage_deposits.get(&accounts(0)).unwrap_or(0);
+
+        // add_expense uses owner's storage credit (use_attached=false)
+        ctx = context(accounts(0), 0);
         testing_env!(ctx.build());
         contract.add_expense(
             "circle-0".to_string(),
@@ -4540,8 +4546,9 @@ mod tests {
             "Dinner".to_string(),
         );
 
-        let stored = contract.storage_deposits.get(&accounts(0)).unwrap_or(0);
-        assert_eq!(stored, min);
+        let stored_after = contract.storage_deposits.get(&accounts(0)).unwrap_or(0);
+        // Storage cost should have been deducted from owner's storage credit
+        assert!(stored_after < stored_before, "Storage cost should be deducted from owner");
     }
 
     #[test]
@@ -5109,8 +5116,8 @@ mod tests {
         let claims = contract.list_claims("circle-0".to_string(), None, None, None);
         let claim_id = claims[0].id.clone();
 
-        // Payer approves the claim
-        ctx = context(accounts(0), 0);
+        // Payer approves the claim (requires 1 yoctoNEAR)
+        ctx = context(accounts(0), 1);
         testing_env!(ctx.build());
         contract.approve_claim("circle-0".to_string(), claim_id.clone());
 
@@ -5171,8 +5178,8 @@ mod tests {
         let claims = contract.list_claims("circle-0".to_string(), None, None, None);
         let claim_id = claims[0].id.clone();
 
-        // Payer rejects the claim
-        ctx = context(accounts(0), 0);
+        // Payer rejects the claim (requires 1 yoctoNEAR)
+        ctx = context(accounts(0), 1);
         testing_env!(ctx.build());
         contract.reject_claim("circle-0".to_string(), claim_id.clone());
 
@@ -5233,8 +5240,8 @@ mod tests {
         let claims = contract.list_claims("circle-0".to_string(), None, None, None);
         let claim_id = claims[0].id.clone();
 
-        // Payer approves removal
-        ctx = context(accounts(0), 0);
+        // Payer approves removal (requires 1 yoctoNEAR)
+        ctx = context(accounts(0), 1);
         testing_env!(ctx.build());
         contract.approve_claim("circle-0".to_string(), claim_id);
 
@@ -5410,8 +5417,8 @@ mod tests {
         let claims = contract.list_claims("circle-0".to_string(), None, None, None);
         let claim_id = claims[0].id.clone();
 
-        // Non-payer tries to approve
-        ctx = context(accounts(1), 0);
+        // Non-payer tries to approve (requires 1 yoctoNEAR to get past security check)
+        ctx = context(accounts(1), 1);
         testing_env!(ctx.build());
         contract.approve_claim("circle-0".to_string(), claim_id);
     }
@@ -5532,8 +5539,8 @@ mod tests {
         let first_expense_id = expenses_before[0].id.clone();
         assert_eq!(first_expense_id, "expense-circle-0-1");
 
-        // Delete the expense
-        ctx = context(accounts(0), 0);
+        // Delete the expense (requires 1 yoctoNEAR)
+        ctx = context(accounts(0), 1);
         testing_env!(ctx.build());
         contract.delete_expense("circle-0".to_string(), first_expense_id.clone());
 
@@ -5592,7 +5599,7 @@ mod tests {
 
         let before = contract.storage_deposits.get(&accounts(0)).unwrap_or(0);
 
-        ctx = context(accounts(0), 0);
+        ctx = context(accounts(0), 1);
         testing_env!(ctx.build());
         contract.delete_expense("circle-0".to_string(), "expense-circle-0-1".to_string());
 
@@ -5676,8 +5683,8 @@ mod tests {
             );
         }
 
-        // Delete the third expense (id 3)
-        ctx = context(accounts(0), 0);
+        // Delete the third expense (requires 1 yoctoNEAR)
+        ctx = context(accounts(0), 1);
         testing_env!(ctx.build());
         contract.delete_expense("circle-0".to_string(), "expense-circle-0-3".to_string());
 
@@ -6082,7 +6089,7 @@ mod tests {
 
     /// E2-FIX: Verify leave_circle fails with proper message when escrow is non-zero
     #[test]
-    #[should_panic(expected = "Cannot leave with escrowed funds. Disable autopay first")]
+    #[should_panic(expected = "Cannot leave with escrowed funds. Disable autopay first to withdraw escrow.")]
     fn test_leave_circle_fails_with_escrow() {
         let mut contract = setup();
 
@@ -6102,19 +6109,8 @@ mod tests {
         testing_env!(ctx.build());
         contract.join_circle("circle-0".to_string(), None);
 
-        ctx = context(accounts(0), 0);
-        testing_env!(ctx.build());
-        contract.add_expense(
-            "circle-0".to_string(),
-            U128(100),
-            vec![
-                MemberShare { account_id: accounts(0), weight_bps: 5_000 },
-                MemberShare { account_id: accounts(1), weight_bps: 5_000 },
-            ],
-            "Dinner".to_string(),
-        );
-
-        // accounts(1) owes 50, enable autopay with escrow
+        // Enable autopay with escrow deposit, but NO expense added yet
+        // This means accounts(1) has balance = 0, escrow > 0
         ctx = context(accounts(1), 50);
         testing_env!(ctx.build());
         contract.set_autopay("circle-0".to_string(), true);
@@ -6165,8 +6161,8 @@ mod tests {
 
         let balance_before = contract.storage_deposits.get(&accounts(0)).unwrap_or(0);
 
-        // E4-FIX: Delete with attached deposit - should refund it
-        ctx = context(accounts(0), 1000);  // Attach some deposit
+        // E4-FIX: Delete with 1 yoctoNEAR (required for security)
+        ctx = context(accounts(0), 1);
         testing_env!(ctx.build());
         contract.delete_expense("circle-0".to_string(), "expense-circle-0-1".to_string());
 
@@ -6268,8 +6264,8 @@ mod tests {
         let escrow_key = format!("{}:{}", "circle-0", accounts(1));
         assert_eq!(contract.escrow_deposits.get(&escrow_key).unwrap_or(0), 50);
 
-        // Disable autopay - should refund escrow
-        ctx = context(accounts(1), 0);
+        // Disable autopay (requires 1 yoctoNEAR) - should refund escrow
+        ctx = context(accounts(1), 1);
         testing_env!(ctx.build());
         contract.set_autopay("circle-0".to_string(), false);
 
@@ -6496,8 +6492,8 @@ mod tests {
         assert!(circle.locked);
         assert!(!circle.membership_open);
 
-        // Owner cancels the settlement
-        ctx = context(accounts(0), 0);
+        // Owner cancels the settlement (requires 1 yoctoNEAR)
+        ctx = context(accounts(0), 1);
         testing_env!(ctx.build());
         contract.cancel_settlement("circle-0".to_string());
 
@@ -6569,8 +6565,8 @@ mod tests {
         circle.locked = true;
         contract.circles.insert(&"circle-0".to_string(), &circle);
 
-        // Try to cancel - should panic
-        ctx = context(accounts(0), 0);
+        // Try to cancel (requires 1 yoctoNEAR) - should panic
+        ctx = context(accounts(0), 1);
         testing_env!(ctx.build());
         contract.cancel_settlement("circle-0".to_string());
     }
@@ -6595,8 +6591,8 @@ mod tests {
         let circle = contract.get_circle("circle-0".to_string());
         assert_eq!(circle.state, CircleState::Open);
 
-        // Try to cancel - should panic
-        ctx = context(accounts(0), 0);
+        // Try to cancel (requires 1 yoctoNEAR) - should panic
+        ctx = context(accounts(0), 1);
         testing_env!(ctx.build());
         contract.cancel_settlement("circle-0".to_string());
     }
@@ -6630,8 +6626,8 @@ mod tests {
         testing_env!(ctx.build());
         contract.confirm_ledger("circle-0".to_string());
 
-        // Non-owner tries to cancel - should panic
-        ctx = context(accounts(1), 0);
+        // Non-owner tries to cancel (requires 1 yoctoNEAR) - should panic
+        ctx = context(accounts(1), 1);
         testing_env!(ctx.build());
         contract.cancel_settlement("circle-0".to_string());
     }
@@ -6669,8 +6665,8 @@ mod tests {
         let circle = contract.get_circle("circle-0".to_string());
         assert_eq!(circle.state, CircleState::SettlementInProgress);
 
-        // Try reset_confirmations - should panic with helpful message
-        ctx = context(accounts(0), 0);
+        // Try reset_confirmations (requires 1 yoctoNEAR) - should panic with helpful message
+        ctx = context(accounts(0), 1);
         testing_env!(ctx.build());
         contract.reset_confirmations("circle-0".to_string());
     }
@@ -6722,8 +6718,8 @@ mod tests {
         // Record storage balance before deletion
         let storage_before = contract.storage_deposits.get(&accounts(0)).unwrap_or(0);
 
-        // Delete expense (no deposit attached)
-        ctx = context(accounts(0), 0);
+        // Delete expense (requires 1 yoctoNEAR)
+        ctx = context(accounts(0), 1);
         testing_env!(ctx.build());
         contract.delete_expense("circle-0".to_string(), "expense-circle-0-1".to_string());
 
@@ -6778,8 +6774,8 @@ mod tests {
         let storage_after_add = contract.storage_deposits.get(&accounts(0)).unwrap_or(0);
         assert!(storage_after_add < storage_before_add, "Adding expense should consume storage");
 
-        // Delete expense
-        ctx = context(accounts(0), 0);
+        // Delete expense (requires 1 yoctoNEAR)
+        ctx = context(accounts(0), 1);
         testing_env!(ctx.build());
         contract.delete_expense("circle-0".to_string(), "expense-circle-0-1".to_string());
 
@@ -6850,8 +6846,8 @@ mod tests {
         assert!(contract.confirmations_map.get(&confirmation_key).unwrap_or(false));
         assert_eq!(contract.confirmations_count.get(&"circle-0".to_string()).unwrap_or(0), 1);
 
-        // Delete an expense
-        ctx = context(accounts(0), 0);
+        // Delete an expense (requires 1 yoctoNEAR)
+        ctx = context(accounts(0), 1);
         testing_env!(ctx.build());
         contract.delete_expense("circle-0".to_string(), "expense-circle-0-1".to_string());
 
@@ -6897,8 +6893,8 @@ mod tests {
             "Dinner".to_string(),
         );
 
-        // Try to delete as accounts(1) - should fail
-        ctx = context(accounts(1), 0);
+        // Try to delete as accounts(1) (requires 1 yoctoNEAR) - should fail
+        ctx = context(accounts(1), 1);
         testing_env!(ctx.build());
         contract.delete_expense("circle-0".to_string(), "expense-circle-0-1".to_string());
     }

@@ -30,6 +30,8 @@ near-sdk = { version = "5.5.0", features = ["unit-testing"] }
 
 # Dev dependencies that require native code - exclude wasm32
 # These pull in tokio/mio which don't support wasm32-unknown-unknown
+# Note: near-sdk with unit-testing feature pulls in near-vm-runner which doesn't compile on Windows.
+# Run tests on Linux/macOS or through WSL/CI.
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 tokio = { version = "1", features = ["full"] }
 near-workspaces = { version = "0.14", default-features = false }
