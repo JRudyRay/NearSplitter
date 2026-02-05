@@ -4267,8 +4267,10 @@ mod tests {
     use super::*;
     use near_sdk::test_utils::{accounts, VMContextBuilder};
     use near_sdk::testing_env;
+    use near_sdk::test_vm_config;
     use near_sdk::PromiseResult;
     use std::cell::Cell;
+    use std::collections::HashMap;
 
     const ONE_NEAR: u128 = 1_000_000_000_000_000_000_000_000;
 
@@ -5853,7 +5855,13 @@ mod tests {
         ctx.current_account_id(contract_id.clone());
         ctx.predecessor_account_id(contract_id);
         ctx.signer_account_id(accounts(0));
-        testing_env!(ctx.build(), PromiseResult::Successful(vec![]));
+        testing_env!(
+            ctx.build(),
+            test_vm_config(),
+            near_sdk::RuntimeFeesConfig::test(),
+            HashMap::default(),
+            vec![PromiseResult::Successful(vec![])],
+        );
 
         let result = contract.on_ft_forward_complete(
             accounts(0),
@@ -5894,7 +5902,13 @@ mod tests {
         ctx.current_account_id(contract_id.clone());
         ctx.predecessor_account_id(contract_id);
         ctx.signer_account_id(accounts(0));
-        testing_env!(ctx.build(), PromiseResult::Failed);
+        testing_env!(
+            ctx.build(),
+            test_vm_config(),
+            near_sdk::RuntimeFeesConfig::test(),
+            HashMap::default(),
+            vec![PromiseResult::Failed],
+        );
 
         let result = contract.on_ft_forward_complete(
             accounts(0),
@@ -5939,7 +5953,13 @@ mod tests {
         ctx.current_account_id(contract_id.clone());
         ctx.predecessor_account_id(contract_id);
         ctx.signer_account_id(accounts(0));
-        testing_env!(ctx.build(), PromiseResult::Successful(vec![]));
+        testing_env!(
+            ctx.build(),
+            test_vm_config(),
+            near_sdk::RuntimeFeesConfig::test(),
+            HashMap::default(),
+            vec![PromiseResult::Successful(vec![])],
+        );
 
         let result = contract.on_ft_forward_complete(
             accounts(0),
@@ -6183,7 +6203,13 @@ mod tests {
         ctx.current_account_id(contract_id.clone());
         ctx.predecessor_account_id(contract_id);
         ctx.signer_account_id(accounts(0));
-        testing_env!(ctx.build(), PromiseResult::Successful(vec![]));
+        testing_env!(
+            ctx.build(),
+            test_vm_config(),
+            near_sdk::RuntimeFeesConfig::test(),
+            HashMap::default(),
+            vec![PromiseResult::Successful(vec![])],
+        );
 
         // M2-FIX: Should not panic, should return 0 (tokens already sent)
         let result = contract.on_ft_forward_complete(
@@ -7283,9 +7309,9 @@ mod tests {
         ctx.predecessor_account_id(env::current_account_id());
         testing_env!(
             ctx.build(),
-            near_sdk::test_utils::VMConfig::test(),
+            test_vm_config(),
             near_sdk::RuntimeFeesConfig::test(),
-            Default::default(),
+            HashMap::default(),
             vec![PromiseResult::Successful(metadata_json)],
         );
 
@@ -7332,9 +7358,9 @@ mod tests {
         ctx.predecessor_account_id(env::current_account_id());
         testing_env!(
             ctx.build(),
-            near_sdk::test_utils::VMConfig::test(),
+            test_vm_config(),
             near_sdk::RuntimeFeesConfig::test(),
-            Default::default(),
+            HashMap::default(),
             vec![PromiseResult::Failed],
         );
 
@@ -7379,9 +7405,9 @@ mod tests {
         ctx.predecessor_account_id(env::current_account_id());
         testing_env!(
             ctx.build(),
-            near_sdk::test_utils::VMConfig::test(),
+            test_vm_config(),
             near_sdk::RuntimeFeesConfig::test(),
-            Default::default(),
+            HashMap::default(),
             vec![PromiseResult::Successful(metadata_json)],
         );
 
@@ -7424,9 +7450,9 @@ mod tests {
         ctx.predecessor_account_id(env::current_account_id());
         testing_env!(
             ctx.build(),
-            near_sdk::test_utils::VMConfig::test(),
+            test_vm_config(),
             near_sdk::RuntimeFeesConfig::test(),
-            Default::default(),
+            HashMap::default(),
             vec![PromiseResult::Successful(metadata_json)],
         );
 
@@ -7470,9 +7496,9 @@ mod tests {
         ctx.predecessor_account_id(env::current_account_id());
         testing_env!(
             ctx.build(),
-            near_sdk::test_utils::VMConfig::test(),
+            test_vm_config(),
             near_sdk::RuntimeFeesConfig::test(),
-            Default::default(),
+            HashMap::default(),
             vec![PromiseResult::Successful(metadata_json)],
         );
 
@@ -7516,9 +7542,9 @@ mod tests {
         ctx.predecessor_account_id(env::current_account_id());
         testing_env!(
             ctx.build(),
-            near_sdk::test_utils::VMConfig::test(),
+            test_vm_config(),
             near_sdk::RuntimeFeesConfig::test(),
-            Default::default(),
+            HashMap::default(),
             vec![PromiseResult::Successful(metadata_json)],
         );
 
@@ -8533,12 +8559,12 @@ mod tests {
 
         // Simulate contract having balance (via attached NEAR to methods)
         // Set context as contract itself (private method)
-        ctx = VMContextBuilder::new()
+        let rescue_ctx = VMContextBuilder::new()
             .predecessor_account_id("contract.near".parse().unwrap())
             .current_account_id("contract.near".parse().unwrap())
             .account_balance(NearToken::from_yoctonear(3 * ONE_NEAR))
             .build();
-        testing_env!(ctx);
+        testing_env!(rescue_ctx);
 
         // Try to rescue 2 NEAR (which would drain user deposits)
         contract.rescue_stuck_near(accounts(2), U128(2 * ONE_NEAR));
@@ -8601,13 +8627,13 @@ mod tests {
         // Simulate contract having extra balance (stuck funds)
         // Contract has: 5 NEAR balance, 1 NEAR in storage deposits
         // Should be able to rescue ~4 NEAR minus storage costs and buffer
-        ctx = VMContextBuilder::new()
+        let rescue_ctx = VMContextBuilder::new()
             .predecessor_account_id("contract.near".parse().unwrap())
             .current_account_id("contract.near".parse().unwrap())
             .account_balance(NearToken::from_yoctonear(5 * ONE_NEAR))
             .storage_usage(1000) // Small storage usage
             .build();
-        testing_env!(ctx);
+        testing_env!(rescue_ctx);
 
         // Rescue a small amount that's clearly available
         // (less than 5 NEAR - 1 NEAR storage - safety buffer)
