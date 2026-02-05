@@ -7,8 +7,8 @@ publish = false
 # Integration tests only run on native targets, never on wasm32
 # This prevents tokio/mio from being compiled for wasm32-unknown-unknown
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-# Use version compatible with near-sdk 5.5.0
-# Note: default-features=false avoids pulling in problematic wasm-opt/cxx dependencies
+# Use latest near-workspaces for sign-extension opcode support
+# Versions 0.9+ include updated nearcore sandbox that handles modern Rust compiler output
 near-workspaces = { version = "0.14", default-features = false }
 tokio = { version = "1", features = ["full"] }
 serde_json = "1"

@@ -76,14 +76,11 @@ jobs:
       - name: Optimize WASM with wasm-opt (main contract)
         working-directory: contracts/near_splitter
         run: |
-          wasm-opt -Oz --signext-lowering -o target/wasm32-unknown-unknown/release/near_splitter_optimized.wasm \
+          wasm-opt -Oz -o target/wasm32-unknown-unknown/release/near_splitter_optimized.wasm \
             target/wasm32-unknown-unknown/release/near_splitter.wasm
 
-      - name: Optimize FT Mock WASM with wasm-opt
-        working-directory: contracts/ft_mock
-        run: |
-          wasm-opt -Oz --signext-lowering -o target/wasm32-unknown-unknown/release/ft_mock.wasm \
-            target/wasm32-unknown-unknown/release/ft_mock.wasm
+      # Note: ft_mock doesn't need optimization - near-workspaces 0.14 handles sign-extension opcodes natively
+      # The sandbox VM in near-workspaces 0.14+ supports modern Rust compiler output
 
       - name: Run unit tests (near_splitter)
         working-directory: contracts/near_splitter
