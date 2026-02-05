@@ -49,7 +49,7 @@ jobs:
       - name: Optimize wasm
         working-directory: contracts/near_splitter
         run: |
-          wasm-opt -Oz target/wasm32-unknown-unknown/release/near_splitter.wasm \
+          wasm-opt -Oz --signext-lowering target/wasm32-unknown-unknown/release/near_splitter.wasm \
             -o target/wasm32-unknown-unknown/release/near_splitter_optimized.wasm
 
       - name: Upload optimized artifact
