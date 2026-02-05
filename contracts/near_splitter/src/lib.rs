@@ -272,12 +272,12 @@ struct TransferMessage {
 // NEAR SDK 5.x Contract State Definition
 // The #[near(contract_state)] attribute generates:
 // - ContractState trait implementation (required by NEAR runtime)
-// - Borsh serialization for contract state
+// - Borsh serialization for contract state (BorshSerialize + BorshDeserialize)
 // - State storage/retrieval logic
 // Use #[near] on impl blocks to expose methods as contract endpoints.
+// NOTE: Do NOT add #[derive(BorshSerialize, BorshDeserialize)] - the near macro handles this.
 #[near(contract_state)]
-#[derive(BorshDeserialize, BorshSerialize, PanicOnDefault)]
-#[borsh(crate = "near_sdk::borsh")]
+#[derive(PanicOnDefault)]
 pub struct NearSplitter {
     circles: UnorderedMap<String, Circle>,
     expense_by_id: LookupMap<String, Expense>,
