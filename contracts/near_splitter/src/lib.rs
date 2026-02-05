@@ -5504,9 +5504,11 @@ mod tests {
         testing_env!(ctx.build());
         contract.confirm_ledger("circle-0".to_string());
 
-        // All confirmed
-        let confirmations = contract.get_confirmations("circle-0".to_string());
-        assert_eq!(confirmations.len(), 3);
+        // After all members confirmed, execute_autopay_settlements runs automatically
+        // and clears confirmations. Verify settlement completed successfully.
+        let circle = contract.get_circle("circle-0".to_string());
+        assert_eq!(circle.state, CircleState::Settled, "Circle should be in Settled state after all confirmations");
+        assert!(!circle.locked, "Circle should be unlocked after settlement");
     }
 
     /// C1-FIX: Verify expense IDs remain unique after deletion
@@ -9265,8 +9267,10 @@ mod tests {
         testing_env!(ctx.build());
         contract.confirm_ledger("circle-0".to_string());
 
-        // Now should be true - all members confirmed
-        assert!(contract.is_fully_confirmed("circle-0".to_string()));
+        // After all members confirmed, execute_autopay_settlements runs automatically
+        // and clears confirmations. Verify settlement completed successfully.
+        let circle = contract.get_circle("circle-0".to_string());
+        assert_eq!(circle.state, CircleState::Settled, "Circle should be in Settled state after all confirmations");
     }
 
     /// Test is_membership_open can be toggled and reflects correct state
