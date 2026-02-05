@@ -269,6 +269,13 @@ struct TransferMessage {
     to: AccountId,
 }
 
+// NEAR SDK 5.x Contract Structure Pattern:
+// 1. Use #[near_bindgen] on the struct definition (generates state serialization)
+// 2. Use #[near_bindgen] on ONE impl block (generates ContractState trait & method bindings)
+// 3. Additional impl blocks should NOT have #[near_bindgen] (just plain impl blocks)
+// This contract has TWO impl blocks: one at line 335 with #[near_bindgen], and one at
+// line 3245 WITHOUT #[near_bindgen]. Having multiple #[near_bindgen] on impl blocks
+// causes "trait bound ContractState is not satisfied" errors.
 #[near_bindgen]
 #[derive(BorshDeserialize, BorshSerialize, PanicOnDefault)]
 #[borsh(crate = "near_sdk::borsh")]
@@ -332,6 +339,12 @@ pub struct NearSplitter {
     approved_tokens: LookupMap<AccountId, bool>,
 }
 
+// PRIMARY CONTRACT METHODS (impl block 1 of 2)
+// This impl block has #[near_bindgen] which generates:
+// - ContractState trait implementation (required by NEAR runtime)
+// - JSON-RPC method bindings for all public methods
+// - Serialization/deserialization logic for method parameters
+// Additional public methods are in a second impl block (line ~3251) WITHOUT #[near_bindgen]
 #[near_bindgen]
 impl NearSplitter {
     /// Initialize the NearSplitter contract.
@@ -3241,7 +3254,12 @@ pub trait ExtSelf {
     ) -> bool;
 }
 
-#[near_bindgen]
+// IMPORTANT: Only ONE impl block should have #[near_bindgen] attribute in near-sdk 5.x.
+// This second impl block contains additional public methods but does NOT have #[near_bindgen]
+// because the macro on the first impl block (line 335) already generates all necessary trait
+// implementations including ContractState. Adding #[near_bindgen] here would cause:
+// "error[E0277]: the trait bound NearSplitter: ContractState is not satisfied"
+// See: https://github.com/near/near-sdk-rs/issues/1087
 impl NearSplitter {
     /// Confirm the ledger for a circle. Once all members confirm, settlement can proceed.
     /// First confirmation locks the circle (no new expenses). 

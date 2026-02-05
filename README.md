@@ -1,42 +1,67 @@
 # NearSplitter
+
 Split shared expenses with friends using a NEAR Protocol smart contract.
+
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE) [![NEAR](https://img.shields.io/badge/NEAR-Protocol-00C08B)](https://near.org)
-Live demo: https://jrudyray.github.io/NearSplitter/  
-Contract (example): `nearsplitter-v4.testnet`
-What it does
-- Track shared expenses on-chain for transparency and tamper-resistance.
-- Let groups ("circles") add expenses, confirm them, and compute minimal settlements.
-- Built so anyone with a NEAR wallet can join and verify the ledger.
-Quick start (use)
+
+**Live Demo**: https://jrudyray.github.io/NearSplitter/
+**Current Contract**: `nearsplitter-v5.testnet`
+
+## What It Does
+
+- Track shared expenses on-chain for transparency and tamper-resistance
+- Let groups ("circles") add expenses, confirm them, and compute minimal settlements
+- Built so anyone with a NEAR wallet can join and verify the ledger
+
+## Quick Start (Users)
+
 1. Open the demo: https://jrudyray.github.io/NearSplitter/
-2. Connect your NEAR testnet wallet and pay the small storage fee.
-3. Create or join a circle and start adding expenses.
-Developer notes
-- Frontend: Next.js + TypeScript + Tailwind CSS (in `frontend/`).
-- Contract: Rust + near-sdk (in `contracts/near_splitter/`).
+2. Connect your NEAR testnet wallet and pay the small storage fee
+3. Create or join a circle and start adding expenses
 
+## Developer Setup
 
-Live demo: https://jrudyray.github.io/NearSplitter/
+### Frontend
+- **Stack**: Next.js 15 + TypeScript + Tailwind CSS
+- **Location**: `frontend/` directory
+- **Quick Start**:
+  ```powershell
+  cd frontend
+  pnpm install
+  cp .env.local.example .env.local
+  # Edit .env.local with your contract ID
+  pnpm dev
+  ```
 
-What this is
-NearSplitter is a lightweight shared-expense tracker whose settlement logic runs on NEAR Protocol. The UI is published to GitHub Pages and talks to a Rust smart contract (example contract: `nearsplitter-v4.testnet`).
+### Smart Contract
+- **Stack**: Rust + near-sdk 5.5.0
+- **Location**: `contracts/near_splitter/` directory
+- **Build**:
+  ```powershell
+  cd contracts/near_splitter
+  cargo build --target wasm32-unknown-unknown --release
+  wasm-opt -Oz target/wasm32-unknown-unknown/release/near_splitter.wasm -o near_splitter_optimized.wasm
+  ```
 
-Quick use
-1. Open the demo URL above.
-2. Connect a NEAR testnet wallet and pay the small storage fee.
-3. Create or join a circle and add expenses.
+### Deployment
+- **Frontend**: Automatically deployed to GitHub Pages via `.github/workflows/deploy.yml`
+- **Contract**: Use NEAR CLI (see [DEPLOYMENT.md](DEPLOYMENT.md))
 
-Developer & deploy notes
-- Frontend: see `frontend/` (Next.js). Run `pnpm install && pnpm dev` to work locally.
-- Contract: see `contracts/near_splitter/` (Rust). Build with `cargo build --target wasm32-unknown-unknown --release` and optimize the produced wasm with `wasm-opt` before deploying to NEAR. Update `frontend/.env.local` with your contract ID.
-- Frontend hosting: this repo is configured to publish the frontend to GitHub Pages from `main` — check `.github/workflows/` for the workflow.
+## Documentation
 
-License & contact
-MIT — see `LICENSE`. For questions or help, open an issue.
+- [CLAUDE.md](CLAUDE.md) - Comprehensive project context for Claude Code
+- [COMMANDS.md](COMMANDS.md) - Complete command reference
+- [DEPLOYMENT.md](DEPLOYMENT.md) - Deployment guide
+- [RELEASE.md](RELEASE.md) - Release checklist
+- [frontend/FRONTEND_CONTRACT_ALIGNMENT.md](frontend/FRONTEND_CONTRACT_ALIGNMENT.md) - Type alignment checklist
 
-Built on NEAR Protocol.
+## License
 
-License: MIT — see `LICENSE`.
+MIT - see [LICENSE](./LICENSE)
 
-Questions: open an issue.
+## Questions & Support
+
+Open an issue on GitHub for questions or help.
+
+Built on [NEAR Protocol](https://near.org)
 

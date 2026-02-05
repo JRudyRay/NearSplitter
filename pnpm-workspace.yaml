@@ -1,4 +1,4 @@
 packages:
   - "frontend"
   - "contracts/near_splitter/integration"
-  - "scripts"
+  # - "scripts"  # Commented out: no package.json in scripts directory

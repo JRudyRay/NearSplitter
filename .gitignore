@@ -63,3 +63,10 @@ coverage/
 # NEAR
 neardev/
 .near/
+
+# Claude
+CLAUDE.md
+
+COMMANDS.md
+
+DEPLOYMENT.md
