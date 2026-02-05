@@ -9,10 +9,13 @@ use near_contract_standards::fungible_token::metadata::FungibleTokenMetadata;
 use near_sdk::near;
 use near_sdk::{AccountId, PanicOnDefault};
 
+// Store metadata fields directly to avoid serialization conflicts with external types
 #[near(contract_state)]
 #[derive(PanicOnDefault)]
 pub struct FtMock {
-    metadata: Option<FungibleTokenMetadata>,
+    name: String,
+    symbol: String,
+    decimals: u8,
 }
 
 #[near]
@@ -21,15 +24,9 @@ impl FtMock {
     #[init]
     pub fn new(name: String, symbol: String, decimals: u8) -> Self {
         Self {
-            metadata: Some(FungibleTokenMetadata {
-                spec: "ft-1.0.0".to_string(),
-                name,
-                symbol,
-                icon: None,
-                reference: None,
-                reference_hash: None,
-                decimals,
-            }),
+            name,
+            symbol,
+            decimals,
         }
     }
 
@@ -37,29 +34,24 @@ impl FtMock {
     #[init]
     pub fn new_default() -> Self {
         Self {
-            metadata: Some(FungibleTokenMetadata {
-                spec: "ft-1.0.0".to_string(),
-                name: "Mock Token".to_string(),
-                symbol: "MOCK".to_string(),
-                icon: None,
-                reference: None,
-                reference_hash: None,
-                decimals: 18,
-            }),
+            name: "Mock Token".to_string(),
+            symbol: "MOCK".to_string(),
+            decimals: 18,
         }
     }
 
     /// NEP-148: Return fungible token metadata
+    /// Constructs the metadata on demand from stored fields
     pub fn ft_metadata(&self) -> FungibleTokenMetadata {
-        self.metadata.clone().unwrap_or(FungibleTokenMetadata {
+        FungibleTokenMetadata {
             spec: "ft-1.0.0".to_string(),
-            name: "Mock Token".to_string(),
-            symbol: "MOCK".to_string(),
+            name: self.name.clone(),
+            symbol: self.symbol.clone(),
             icon: None,
             reference: None,
             reference_hash: None,
-            decimals: 18,
-        })
+            decimals: self.decimals,
+        }
     }
 
     /// Minimal ft_transfer_call implementation for testing
