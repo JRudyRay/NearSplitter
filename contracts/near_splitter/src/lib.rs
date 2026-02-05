@@ -10,7 +10,7 @@ use near_sdk::json_types::{I128, U128};
 use near_sdk::serde::{Deserialize, Serialize};
 use near_sdk::serde_json::{self, json};
 use near_sdk::{
-    ext_contract, near_bindgen, require, AccountId, BorshStorageKey, Gas, NearToken,
+    ext_contract, near, require, AccountId, BorshStorageKey, Gas, NearToken,
     PanicOnDefault, Promise, PromiseOrValue, PromiseResult,
 };
 
@@ -270,11 +270,12 @@ struct TransferMessage {
 }
 
 // NEAR SDK 5.x Contract State Definition
-// The #[near_bindgen] attribute on the struct generates:
+// The #[near(contract_state)] attribute generates:
+// - ContractState trait implementation (required by NEAR runtime)
 // - Borsh serialization for contract state
-// - State storage/retrieval logic for NEAR runtime
-// Multiple #[near_bindgen] impl blocks are supported with the "legacy" feature.
-#[near_bindgen]
+// - State storage/retrieval logic
+// Use #[near] on impl blocks to expose methods as contract endpoints.
+#[near(contract_state)]
 #[derive(BorshDeserialize, BorshSerialize, PanicOnDefault)]
 #[borsh(crate = "near_sdk::borsh")]
 pub struct NearSplitter {
@@ -340,7 +341,7 @@ pub struct NearSplitter {
 // PRIMARY CONTRACT METHODS (impl block 1 of 2)
 // This impl block contains: initialization, storage management, circle/expense CRUD,
 // claims handling, and view methods. Additional settlement methods are in impl block 2.
-#[near_bindgen]
+#[near]
 impl NearSplitter {
     /// Initialize the NearSplitter contract.
     /// 
@@ -3250,10 +3251,10 @@ pub trait ExtSelf {
 }
 
 // ADDITIONAL CONTRACT METHODS (impl block 2 of 2)
-// In near-sdk 5.x with "legacy" feature, multiple #[near_bindgen] impl blocks are supported.
+// In near-sdk 5.x, multiple #[near] impl blocks are supported.
 // This block contains settlement-related methods that also need to be exposed as contract methods.
-// The #[payable] attribute requires #[near_bindgen] on the impl block to work.
-#[near_bindgen]
+// The #[payable] attribute requires #[near] on the impl block to work.
+#[near]
 impl NearSplitter {
     /// Confirm the ledger for a circle. Once all members confirm, settlement can proceed.
     /// First confirmation locks the circle (no new expenses). 

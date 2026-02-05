@@ -10,7 +10,7 @@ repository = "https://github.com/johno/NearSplitter"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-near-sdk = { version = "5.5.0", features = ["legacy"] }
+near-sdk = "5.5.0"
 near-contract-standards = "5.5.0"
 borsh = "1.5"
 serde = { version = "1", features = ["derive"] }
@@ -26,7 +26,7 @@ serde_json = "1"
 sha2 = "0.10"
 # Enable unit-testing for tests - this feature provides test_utils and testing_env!
 # This only affects dev builds, not the wasm32 release build
-near-sdk = { version = "5.5.0", features = ["legacy", "unit-testing"] }
+near-sdk = { version = "5.5.0", features = ["unit-testing"] }
 
 # Dev dependencies that require native code - exclude wasm32
 # These pull in tokio/mio which don't support wasm32-unknown-unknown
