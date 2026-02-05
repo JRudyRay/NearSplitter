@@ -4508,7 +4508,7 @@ mod tests {
     }
 
     #[test]
-    fn test_add_expense_charges_owner_storage() {
+    fn test_add_expense_deducts_storage_from_owner() {
         let mut contract = setup();
 
         let mut ctx = context(accounts(0), 0);
