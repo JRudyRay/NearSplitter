@@ -5,24 +5,9 @@
  * to test NearSplitter's ft_metadata fetching and caching.
  */
 
+use near_contract_standards::fungible_token::metadata::FungibleTokenMetadata;
 use near_sdk::near;
-use near_sdk::{AccountId, PanicOnDefault, NearSchema};
-use near_sdk::serde::{Deserialize, Serialize};
-use near_sdk::borsh::{BorshDeserialize, BorshSerialize};
-
-/// NEP-148 Fungible Token Metadata
-#[derive(Clone, Serialize, Deserialize, BorshDeserialize, BorshSerialize, NearSchema)]
-#[serde(crate = "near_sdk::serde")]
-#[borsh(crate = "near_sdk::borsh")]
-pub struct FungibleTokenMetadata {
-    pub spec: String,
-    pub name: String,
-    pub symbol: String,
-    pub icon: Option<String>,
-    pub reference: Option<String>,
-    pub reference_hash: Option<String>,
-    pub decimals: u8,
-}
+use near_sdk::{AccountId, PanicOnDefault};
 
 #[near(contract_state)]
 #[derive(PanicOnDefault)]
