@@ -2166,7 +2166,7 @@ impl NearSplitter {
         // STORAGE-FIX: Charge circle owner's storage for settlements
         self.apply_storage_cost(&circle.owner, initial_storage, false, None);
 
-        Promise::new(to).transfer(yocto_to_token(amount));
+        let _ = Promise::new(to).transfer(yocto_to_token(amount));
     }
 
     /// Handle incoming FT transfers for circle settlements.
@@ -2623,7 +2623,7 @@ impl NearSplitter {
         self.total_storage_deposits = self.total_storage_deposits.saturating_sub(amount_requested);
 
         if amount_requested > 0 {
-            Promise::new(account.clone()).transfer(yocto_to_token(amount_requested));
+            let _ = Promise::new(account.clone()).transfer(yocto_to_token(amount_requested));
         }
 
         StorageBalance {
@@ -2699,7 +2699,7 @@ impl NearSplitter {
             let total_refund = balance
                 .checked_add(pending_payout).unwrap_or(balance)
                 .checked_add(escrow_total).unwrap_or(balance);
-            Promise::new(account.clone()).transfer(yocto_to_token(total_refund));
+            let _ = Promise::new(account.clone()).transfer(yocto_to_token(total_refund));
             self.emit_event("storage_unregister", json!([{ "account_id": account }]));
             true
         } else {
@@ -2756,7 +2756,7 @@ impl NearSplitter {
                 .unwrap_or_else(|| env::panic_str("Storage cost overflow"));
             if cost == 0 {
                 if attached > 0 {
-                    Promise::new(refund_target.unwrap()).transfer(yocto_to_token(attached));
+                    let _ = Promise::new(refund_target.unwrap()).transfer(yocto_to_token(attached));
                 }
                 return;
             }
@@ -2796,7 +2796,7 @@ impl NearSplitter {
 
             let refund = attached.saturating_sub(used_from_deposit);
             if refund > 0 {
-                Promise::new(refund_target.unwrap()).transfer(yocto_to_token(refund));
+                let _ = Promise::new(refund_target.unwrap()).transfer(yocto_to_token(refund));
             }
         } else {
             if final_usage < initial_usage {
@@ -2821,7 +2821,7 @@ impl NearSplitter {
             }
 
             if attached > 0 {
-                Promise::new(refund_target.unwrap()).transfer(yocto_to_token(attached));
+                let _ = Promise::new(refund_target.unwrap()).transfer(yocto_to_token(attached));
             }
         }
     }
@@ -3412,7 +3412,7 @@ impl NearSplitter {
         self.apply_storage_cost(&account, initial_storage, false, None);
 
         if refund_amount > 0 {
-            Promise::new(account.clone()).transfer(yocto_to_token(refund_amount));
+            let _ = Promise::new(account.clone()).transfer(yocto_to_token(refund_amount));
         }
 
         self.emit_event(
@@ -3492,7 +3492,7 @@ impl NearSplitter {
             
             // Make all transfers after state is finalized
             for (recipient, amount) in transfers_to_make {
-                Promise::new(recipient).transfer(yocto_to_token(amount));
+                let _ = Promise::new(recipient).transfer(yocto_to_token(amount));
             }
             
             self.emit_event(
@@ -3788,7 +3788,7 @@ impl NearSplitter {
                     "amount": U128(escrowed),
                 }]),
             );
-            Promise::new(member).transfer(yocto_to_token(escrowed));
+            let _ = Promise::new(member).transfer(yocto_to_token(escrowed));
         }
     }
 
@@ -3876,7 +3876,7 @@ impl NearSplitter {
                     "amount": U128(escrowed),
                 }]),
             );
-            Promise::new(member).transfer(yocto_to_token(escrowed));
+            let _ = Promise::new(member).transfer(yocto_to_token(escrowed));
         }
     }
 
@@ -4054,7 +4054,7 @@ impl NearSplitter {
 
             // SECURITY: Transfer AFTER all state changes (checks-effects-interactions)
             if refund_amount > 0 {
-                Promise::new(account).transfer(yocto_to_token(refund_amount));
+                let _ = Promise::new(account).transfer(yocto_to_token(refund_amount));
             }
             return;
         }
@@ -4073,7 +4073,7 @@ impl NearSplitter {
         self.apply_storage_cost(&account, initial_storage, false, None);
 
         if refund_amount > 0 {
-            Promise::new(account).transfer(yocto_to_token(refund_amount));
+            let _ = Promise::new(account).transfer(yocto_to_token(refund_amount));
         }
     }
 

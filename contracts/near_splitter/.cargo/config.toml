@@ -1,5 +1,7 @@
-[build]
-target = "wasm32-unknown-unknown"
+# Do NOT set a default target here - it breaks `cargo test`
+# Tests must run on native target; use --target wasm32-unknown-unknown explicitly for builds
+# [build]
+# target = "wasm32-unknown-unknown"
 
 [target.wasm32-unknown-unknown]
 # Keep rustflags empty to avoid unsupported LLVM args; cargo-near will postprocess
