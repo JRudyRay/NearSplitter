@@ -2411,7 +2411,11 @@ impl NearSplitter {
             return false;
         }
 
-        match env::promise_result(0) {
+        // Note: promise_result is deprecated but promise_result_checked doesn't exist in 5.5.0
+        #[allow(deprecated)]
+        let result = env::promise_result(0);
+
+        match result {
             PromiseResult::Successful(data) => {
                 // Deserialize metadata from the token contract response
                 let metadata: FungibleTokenMetadata = match serde_json::from_slice(&data) {
@@ -3011,8 +3015,11 @@ impl NearSplitter {
         circle_id: String,
         to: AccountId,
     ) -> U128 {
-        // Note: promise_result(0) returns the result of the ft_transfer call
-        match env::promise_result(0) {
+        // Note: promise_result is deprecated but promise_result_checked doesn't exist in 5.5.0
+        #[allow(deprecated)]
+        let result = env::promise_result(0);
+
+        match result {
             PromiseResult::Successful(_) => {
                 // M2-FIX: Defensive check - circle may have been deleted during async callback
                 // If circle no longer exists, still return 0 (tokens already transferred successfully)
@@ -4239,7 +4246,10 @@ fn paginate_vec<T: Clone>(items: &[T], from: u64, limit: u64) -> Vec<T> {
     items[start..end].to_vec()
 }
 
-#[cfg(all(test, not(windows)))]
+// Unit tests require near-sdk with unit-testing feature (provided by dev-dependencies)
+// Exclude wasm32 since test_utils is gated on not(target_arch = "wasm32")
+// Also exclude Windows since some NEAR testing infrastructure doesn't work there
+#[cfg(all(test, not(target_arch = "wasm32"), not(windows)))]
 mod tests {
     use super::*;
     use near_sdk::test_utils::{accounts, VMContextBuilder};

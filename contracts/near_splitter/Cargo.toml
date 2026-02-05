@@ -20,12 +20,12 @@ serde_json = "1"
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 getrandom = { version = "0.2", features = ["custom"] }
 
-# Dev dependencies that work everywhere (no native code)
+# Dev dependencies
 [dev-dependencies]
 serde_json = "1"
 sha2 = "0.10"
-# Enable unit-testing feature for near-sdk when running tests
-# This feature is only available on non-wasm32 targets (enforced by near-sdk itself)
+# Enable unit-testing for tests - this feature provides test_utils and testing_env!
+# This only affects dev builds, not the wasm32 release build
 near-sdk = { version = "5.5.0", features = ["legacy", "unit-testing"] }
 
 # Dev dependencies that require native code - exclude wasm32
@@ -35,6 +35,7 @@ tokio = { version = "1", features = ["full"] }
 near-workspaces = { version = "0.14", default-features = false }
 
 [features]
+default = []
 dev = []
 
 [profile.release]
