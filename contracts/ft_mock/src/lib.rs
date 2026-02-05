@@ -5,12 +5,13 @@
  * to test NearSplitter's ft_metadata fetching and caching.
  */
 
+use near_sdk::near;
+use near_sdk::{AccountId, PanicOnDefault, NearSchema};
+use near_sdk::serde::{Deserialize, Serialize};
 use near_sdk::borsh::{BorshDeserialize, BorshSerialize};
-use near_sdk::{near_bindgen, AccountId};
-use serde::{Deserialize, Serialize};
 
 /// NEP-148 Fungible Token Metadata
-#[derive(Clone, Serialize, Deserialize, BorshDeserialize, BorshSerialize)]
+#[derive(Clone, Serialize, Deserialize, BorshDeserialize, BorshSerialize, NearSchema)]
 #[serde(crate = "near_sdk::serde")]
 #[borsh(crate = "near_sdk::borsh")]
 pub struct FungibleTokenMetadata {
@@ -23,14 +24,13 @@ pub struct FungibleTokenMetadata {
     pub decimals: u8,
 }
 
-#[near_bindgen]
-#[derive(BorshDeserialize, BorshSerialize, Default)]
-#[borsh(crate = "near_sdk::borsh")]
+#[near(contract_state)]
+#[derive(PanicOnDefault)]
 pub struct FtMock {
     metadata: Option<FungibleTokenMetadata>,
 }
 
-#[near_bindgen]
+#[near]
 impl FtMock {
     /// Initialize with custom metadata
     #[init]
