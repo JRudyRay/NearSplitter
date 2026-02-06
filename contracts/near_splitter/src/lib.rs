@@ -2409,6 +2409,7 @@ impl NearSplitter {
     /// # Returns
     /// true if metadata was successfully cached, false otherwise
     #[private]
+    #[payable]
     pub fn on_ft_metadata(
         &mut self,
         token_id: AccountId,
